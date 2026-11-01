@@ -582,11 +582,11 @@
     </div>
   </div>
 
-  <script type="module" src="./main.js?v=9"></script>
+  <script type="module" src="./main.js?v=10"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=9').then((reg) => reg.update()).catch(() => {});
+        navigator.serviceWorker.register('./sw.js?v=10').then((reg) => reg.update()).catch(() => {});
       });
     }
   </script>

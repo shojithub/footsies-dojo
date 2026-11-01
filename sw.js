@@ -1,13 +1,13 @@
-const CACHE_NAME = 'footsies-dojo-v9';
+const CACHE_NAME = 'footsies-dojo-v10';
 const ASSETS = [
   './',
   './index.html',
-  './main.js?v=9',
-  './state.js?v=9',
-  './network.js?v=9',
-  './dojo_ai.js?v=9',
-  './renderer.js?v=9',
-  './audio.js?v=9',
+  './main.js?v=10',
+  './state.js?v=10',
+  './network.js?v=10',
+  './dojo_ai.js?v=10',
+  './renderer.js?v=10',
+  './audio.js?v=10',
   './icon.svg',
   './manifest.json'
 ];

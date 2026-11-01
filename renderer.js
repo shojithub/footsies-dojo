@@ -1,5 +1,5 @@
 // Ultra-Low-Latency Procedural Canvas Renderer (Stickman + Hitboxes + Range Guides + 60F Meter)
-import { FighterState, FRAME_DATA, getBoxes } from './state.js?v=9';
+import { FighterState, FRAME_DATA, getBoxes } from './state.js?v=10';
 
 export class DojoRenderer {
   constructor(canvas) {
