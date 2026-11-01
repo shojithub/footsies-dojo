@@ -19,6 +19,18 @@ export class DojoRenderer {
     this.eyeTrackerGuide = true;  // Shows calm focal point & floor color bridge
     this.stealthSelfMode = false; // 🙈 Blindfold / Curtain over Local Self so player cannot look at Self!
     this.localPlayerNum = 1;      // 1 = P1 is Self, 2 = P2 is Self (in Online P2P Guest mode!)
+    this.matchOverlayInfo = {
+      p1SetWins: 0,
+      p2SetWins: 0,
+      p1Streak: 0,
+      p2Streak: 0,
+      isOnline: false,
+      p1Ready: false,
+      p2Ready: false,
+      myReady: false,
+      remoteReady: false,
+      responseMs: 8,
+    };
   }
 
   classifyFrameState(p) {
@@ -560,6 +572,7 @@ export class DojoRenderer {
     const H = this.height;
     const mySide = this.localPlayerNum === 2 ? 'P2' : 'P1';
     const didWin = state.winner === mySide;
+    const info = this.matchOverlayInfo;
 
     ctx.save();
     if (state.roundState === 'ROUND_OVER') {
@@ -585,14 +598,14 @@ export class DojoRenderer {
       ctx.font = 'bold 16px sans-serif';
       ctx.fillText(`まもなく ROUND ${state.roundNum + 1} が始まります...`, W / 2, 206);
     } else if (state.roundState === 'MATCH_OVER') {
-      // Full Match Finish Result Card + Instant Rematch Prompt!
+      // Full Match Finish Result Card + Win Streak + P2P Instant Rematch!
       ctx.fillStyle = 'rgba(7, 10, 18, 0.88)';
       ctx.fillRect(0, 0, W, H);
 
-      const cardW = 540;
-      const cardH = 250;
+      const cardW = 580;
+      const cardH = 278;
       const cx = (W - cardW) / 2;
-      const cy = 65;
+      const cy = 48;
 
       ctx.fillStyle = '#0f172a';
       ctx.strokeStyle = didWin ? '#4ade80' : '#f87171';
@@ -601,34 +614,101 @@ export class DojoRenderer {
       ctx.strokeRect(cx, cy, cardW, cardH);
 
       ctx.fillStyle = didWin ? '#4ade80' : '#f87171';
-      ctx.font = '900 36px sans-serif';
+      ctx.font = '900 34px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(didWin ? '🏆 YOU WIN!! (勝利！)' : '💥 YOU LOSE... (惜敗)', W / 2, cy + 56);
+      ctx.fillText(didWin ? '🏆 YOU WIN!! (勝利！)' : '💥 YOU LOSE... (惜敗)', W / 2, cy + 48);
 
       ctx.fillStyle = '#e2e8f0';
-      ctx.font = 'bold 20px monospace';
-      ctx.fillText(`FINAL SCORE :  1P [${state.p1Wins}]  -  [${state.p2Wins}] 2P`, W / 2, cy + 102);
-
-      ctx.fillStyle = '#94a3b8';
-      ctx.font = 'bold 15px sans-serif';
+      ctx.font = 'bold 17px monospace';
       ctx.fillText(
-        didWin
-          ? '素晴らしい間合い管理と反応でした！この感覚を反復しましょう！'
-          : 'なぜ被弾したかを思い出し、目隠しや対空意識でもう1セット挑戦！',
+        `ROUND : 1P [${state.p1Wins}] - [${state.p2Wins}] 2P   ｜   通算セット : 1P ${info.p1SetWins}勝 - ${info.p2SetWins}勝 2P`,
         W / 2,
-        cy + 145
+        cy + 86
       );
 
-      // Pulsing Rematch Button Graphic inside Canvas
-      ctx.fillStyle = '#2563eb';
-      ctx.fillRect(W / 2 - 190, cy + 172, 380, 52);
-      ctx.strokeStyle = '#38bdf8';
-      ctx.lineWidth = 2;
-      ctx.strokeRect(W / 2 - 190, cy + 172, 380, 52);
+      // 🔥 WIN STREAK Banner
+      const myStreak = this.localPlayerNum === 2 ? info.p2Streak : info.p1Streak;
+      const enemyStreak = this.localPlayerNum === 2 ? info.p1Streak : info.p2Streak;
 
-      ctx.fillStyle = '#ffffff';
-      ctx.font = '900 18px sans-serif';
-      ctx.fillText('⚡ 画面タップ または【A/Bボタン】で即再戦！', W / 2, cy + 204);
+      if (myStreak >= 2) {
+        ctx.fillStyle = '#fb923c';
+        ctx.font = '900 20px sans-serif';
+        ctx.fillText(`🔥🔥 現在 ${myStreak}連勝中！！ (${myStreak} WIN STREAK!) 🔥🔥`, W / 2, cy + 124);
+      } else if (myStreak === 1) {
+        ctx.fillStyle = '#fde047';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillText('🔥 1連勝スタート！このリズムで連勝を伸ばそう！', W / 2, cy + 124);
+      } else if (enemyStreak >= 2) {
+        ctx.fillStyle = '#f87171';
+        ctx.font = 'bold 16px sans-serif';
+        ctx.fillText(`⚡ 相手が ${enemyStreak}連勝中！次の試合で連勝をストップしよう！`, W / 2, cy + 124);
+      } else {
+        ctx.fillStyle = '#94a3b8';
+        ctx.font = 'bold 15px sans-serif';
+        ctx.fillText('なぜ被弾したかを思い出し、目隠しや対空意識でもう1セット挑戦！', W / 2, cy + 124);
+      }
+
+      if (info.isOnline) {
+        // P2P Ready Status Indicator
+        const p1Tag = info.p1Ready ? '🟢 1P READY!' : '⚪ 1P 待機中';
+        const p2Tag = info.p2Ready ? '🟢 2P READY!' : '⚪ 2P 待機中';
+        ctx.fillStyle = '#38bdf8';
+        ctx.font = 'bold 15px monospace';
+        ctx.fillText(`${p1Tag}    ⇔    ${p2Tag}`, W / 2, cy + 162);
+
+        const btnW = 480;
+        const btnH = 54;
+        const bx = W / 2 - btnW / 2;
+        const by = cy + 180;
+
+        if (info.remoteReady) {
+          ctx.fillStyle = '#16a34a';
+          ctx.strokeStyle = '#4ade80';
+        } else if (info.myReady) {
+          ctx.fillStyle = '#0284c7';
+          ctx.strokeStyle = '#38bdf8';
+        } else {
+          ctx.fillStyle = '#2563eb';
+          ctx.strokeStyle = '#38bdf8';
+        }
+        ctx.lineWidth = 2.5;
+        ctx.fillRect(bx, by, btnW, btnH);
+        ctx.strokeRect(bx, by, btnW, btnH);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '900 16px sans-serif';
+        if (info.remoteReady) {
+          ctx.fillText(
+            `⚡ 相手が再戦ボタンを押しました！(応答 ${info.responseMs}ms) タップで即開始！`,
+            W / 2,
+            by + 33
+          );
+        } else if (info.myReady) {
+          ctx.fillText(
+            `⚡ P2P再戦シグナル送信済 (応答 ${info.responseMs}ms) — 相手のボタン待ち`,
+            W / 2,
+            by + 33
+          );
+        } else {
+          ctx.fillText('⚡ 画面タップ または【A/B/Cボタン】でP2P即再戦！', W / 2, by + 33);
+        }
+      } else {
+        // Offline CPU Dojo Instant Rematch Button
+        const btnW = 420;
+        const btnH = 56;
+        const bx = W / 2 - btnW / 2;
+        const by = cy + 166;
+
+        ctx.fillStyle = '#2563eb';
+        ctx.fillRect(bx, by, btnW, btnH);
+        ctx.strokeStyle = '#38bdf8';
+        ctx.lineWidth = 2.5;
+        ctx.strokeRect(bx, by, btnW, btnH);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '900 18px sans-serif';
+        ctx.fillText('⚡ 画面タップ または【A/B/Cボタン】で即再戦！', W / 2, by + 35);
+      }
     }
     ctx.restore();
   }

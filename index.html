@@ -494,11 +494,12 @@
 
     <!-- 5. Compact Scoreboard & Visual Toggles -->
     <div class="assist-strip">
-      <div class="stats-inline">
+      <div class="stats-inline" style="gap:7px;">
+        <span style="color:#fb923c;">🔥連勝:<strong id="statStreak">0</strong></span>
         <span style="color:#c084fc;">⚡対空:<strong id="statAntiAir">0</strong></span>
-        <span style="color:#38bdf8;">⏱️最速:<strong id="statBestRx">--</strong></span>
+        <span style="color:#38bdf8;">⏱️<strong id="statBestRx">--</strong></span>
         <span style="color:#4ade80;">✊3すくみ:<strong id="statRpsWins">0</strong></span>
-        <span style="color:#facc15;">🔥差返:<strong id="statWhiff">0</strong></span>
+        <span style="color:#facc15;">差返:<strong id="statWhiff">0</strong></span>
       </div>
       <div class="toggles-inline">
         <label><input type="checkbox" id="toggleEyeReticle" checked />🎯間合いバー</label>

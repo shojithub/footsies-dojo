@@ -20,6 +20,7 @@ export class P2PRollbackEngine {
     this.remoteConfirmedFrame = -1;
     this.onStatusChange = null;
     this.onMatchStart = null;
+    this.onRematchSignal = null;
 
     // Telemetry & Simulation Settings
     this.routeType = 'IPV6_DIRECT'; // 'IPV6_DIRECT' | 'PEER_RELAY' | 'OPEN_NAT64'
@@ -274,6 +275,15 @@ export class P2PRollbackEngine {
     });
   }
 
+  sendRematchReady() {
+    if (!this.isOnline || !this.conn || !this.conn.open) return;
+    this.conn.send({
+      t: 'REMATCH_READY',
+      player: this.localPlayerNum,
+      sentAt: performance.now(),
+    });
+  }
+
   handleIncomingPacket(data) {
     if (!data) return;
     this.packetPulseIntensity = 1.0;
@@ -282,6 +292,32 @@ export class P2PRollbackEngine {
       const rtt = Math.max(1, Math.round(performance.now() - data.pingTs));
       this.realJitterMs = Math.abs(rtt - this.realRttMs);
       this.realRttMs = Math.round(this.realRttMs * 0.7 + rtt * 0.3);
+      return;
+    }
+
+    if (data.t === 'REMATCH_READY') {
+      if (this.conn && this.conn.open && data.sentAt) {
+        this.conn.send({ t: 'REMATCH_ACK', sentAt: data.sentAt });
+      }
+      if (this.onRematchSignal) {
+        this.onRematchSignal({
+          type: 'REMOTE_READY',
+          player: data.player,
+          rttMs: this.realRttMs,
+        });
+      }
+      return;
+    }
+
+    if (data.t === 'REMATCH_ACK' && data.sentAt) {
+      const rtt = Math.max(1, Math.round(performance.now() - data.sentAt));
+      this.realRttMs = rtt;
+      if (this.onRematchSignal) {
+        this.onRematchSignal({
+          type: 'ACK_RECEIVED',
+          rttMs: rtt,
+        });
+      }
       return;
     }
 

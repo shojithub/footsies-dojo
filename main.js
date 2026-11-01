@@ -12,14 +12,47 @@ const trainerAI = new DojoTrainerAI();
 
 let startOnRightSide = false;
 
-// Training Statistics
+// Training & Match Statistics
 const stats = {
   antiAirSuccess: 0,
   antiAirMissed: 0,
   bestReactionFrames: null,
   rpsWins: 0,
   whiffPunishes: 0,
+  p1SetWins: 0,
+  p2SetWins: 0,
+  p1Streak: 0,
+  p2Streak: 0,
 };
+
+let matchRecorded = false;
+const rematchState = {
+  myReady: false,
+  remoteReady: false,
+  responseMs: 8,
+};
+
+function clearRematchState() {
+  matchRecorded = false;
+  rematchState.myReady = false;
+  rematchState.remoteReady = false;
+  rematchState.responseMs = netEngine.realRttMs || 8;
+  syncOverlayInfo();
+}
+
+function syncOverlayInfo() {
+  const isP2 = netEngine.isOnline && netEngine.localPlayerNum === 2;
+  renderer.matchOverlayInfo.p1SetWins = stats.p1SetWins;
+  renderer.matchOverlayInfo.p2SetWins = stats.p2SetWins;
+  renderer.matchOverlayInfo.p1Streak = stats.p1Streak;
+  renderer.matchOverlayInfo.p2Streak = stats.p2Streak;
+  renderer.matchOverlayInfo.isOnline = netEngine.isOnline;
+  renderer.matchOverlayInfo.myReady = rematchState.myReady;
+  renderer.matchOverlayInfo.remoteReady = rematchState.remoteReady;
+  renderer.matchOverlayInfo.p1Ready = isP2 ? rematchState.remoteReady : rematchState.myReady;
+  renderer.matchOverlayInfo.p2Ready = isP2 ? rematchState.myReady : rematchState.remoteReady;
+  renderer.matchOverlayInfo.responseMs = rematchState.responseMs;
+}
 
 let coachingPopup = {
   title: '📱 スマホ格ゲー反復道場へようこそ！',
@@ -168,11 +201,13 @@ function onP2PStatusUpdate(info) {
 netEngine.onMatchStart = (myPlayerNum) => {
   renderer.localPlayerNum = myPlayerNum;
   startOnRightSide = false;
+  clearRematchState();
   gameState = createInitialGameState();
   netEngine.resetBuffers(gameState);
   renderer.smoothBlindX = myPlayerNum === 2 ? gameState.p2.x : gameState.p1.x;
   renderer.camX = 500;
   updateRoleLabels();
+  updateStatsUI();
 
   coachingPopup = {
     title: `⚡ P2Pオンライン対戦スタート！あなたは【${myPlayerNum}P (${myPlayerNum === 1 ? '左側' : '右側'})】です！`,
@@ -180,6 +215,25 @@ netEngine.onMatchStart = (myPlayerNum) => {
     color: '#4ade80',
     timer: 260,
   };
+};
+
+netEngine.onRematchSignal = (sig) => {
+  if (sig.type === 'REMOTE_READY') {
+    rematchState.remoteReady = true;
+    rematchState.responseMs = sig.rttMs || netEngine.realRttMs || 8;
+    sound.playJumpAlert();
+    syncOverlayInfo();
+
+    // If local player is already ready, launch next match immediately!
+    if (rematchState.myReady && netEngine.conn && netEngine.conn.open) {
+      sound.playSuccessChime();
+      netEngine.conn.send({ t: 'RESET_SYNC' });
+      netEngine.onMatchStart(netEngine.localPlayerNum);
+    }
+  } else if (sig.type === 'ACK_RECEIVED') {
+    rematchState.responseMs = sig.rttMs || netEngine.realRttMs || 8;
+    syncOverlayInfo();
+  }
 };
 
 function updateRoleLabels() {
@@ -303,12 +357,23 @@ canvas.addEventListener('pointerdown', () => {
 
 function triggerInstantRematch() {
   sound.init();
-  sound.playSuccessChime();
   if (netEngine.isOnline && netEngine.conn && netEngine.conn.open) {
-    netEngine.conn.send({ t: 'RESET_SYNC' });
-    netEngine.onMatchStart(netEngine.localPlayerNum);
+    // If opponent already pressed Ready (or we already pressed Ready once and tap again), launch immediately!
+    if (rematchState.remoteReady || rematchState.myReady) {
+      sound.playSuccessChime();
+      netEngine.conn.send({ t: 'RESET_SYNC' });
+      netEngine.onMatchStart(netEngine.localPlayerNum);
+      return;
+    }
+    // First tap: send instant P2P Rematch Ready signal so opponent sees our button press in ~8ms!
+    rematchState.myReady = true;
+    rematchState.responseMs = netEngine.realRttMs || 8;
+    sound.playJumpAlert();
+    netEngine.sendRematchReady();
+    syncOverlayInfo();
     return;
   }
+  sound.playSuccessChime();
   resetPositions();
 }
 
@@ -333,6 +398,7 @@ function applyModePositions(state) {
 }
 
 function resetPositions() {
+  clearRematchState();
   gameState = createInitialGameState(0, 0, 1);
   applyModePositions(gameState);
   renderer.localPlayerNum = netEngine.isOnline ? netEngine.localPlayerNum : 1;
@@ -388,12 +454,26 @@ function handleCoachingEvents(ev) {
     return;
   }
   if (ev.type === 'MATCH_OVER') {
+    if (!matchRecorded) {
+      matchRecorded = true;
+      if (ev.winner === 'P1') {
+        stats.p1SetWins++;
+        stats.p1Streak++;
+        stats.p2Streak = 0;
+      } else if (ev.winner === 'P2') {
+        stats.p2SetWins++;
+        stats.p2Streak++;
+        stats.p1Streak = 0;
+      }
+      syncOverlayInfo();
+      updateStatsUI();
+    }
     if (ev.winner === myLabel) {
       sound.playSuccessChime();
     } else {
       sound.playHit(true);
     }
-    matchEndCooldown = 35; // Prevent accidental button mash from skipping result screen immediately
+    matchEndCooldown = 30; // Brief cooldown so the winning blow doesn't accidentally press Rematch
     return;
   }
   if (ev.type === 'BLOCKED') {
@@ -445,6 +525,9 @@ function handleCoachingEvents(ev) {
 }
 
 function updateStatsUI() {
+  const myStreak = netEngine.isOnline && netEngine.localPlayerNum === 2 ? stats.p2Streak : stats.p1Streak;
+  const streakEl = document.getElementById('statStreak');
+  if (streakEl) streakEl.textContent = `${myStreak}`;
   document.getElementById('statAntiAir').textContent = `${stats.antiAirSuccess}`;
   document.getElementById('statBestRx').textContent = stats.bestReactionFrames
     ? `${stats.bestReactionFrames}F`
@@ -458,6 +541,7 @@ let lastTime = performance.now();
 const STEP_MS = 1000 / 60;
 let accumulator = 0;
 let matchEndCooldown = 0;
+let prevRematchBtnDown = false;
 
 function starsText(wins) {
   if (wins >= 2) return '★★';
@@ -472,15 +556,20 @@ function gameLoop(now) {
 
   while (accumulator >= STEP_MS) {
     const localIn = getLocalInput();
+    const actionPressed = (localIn & (INPUT_BITS.ATTACK | INPUT_BITS.ANTIAIR | INPUT_BITS.THROW)) !== 0;
 
     // If Match is over, pressing Attack (A), Anti-Air (B), or Throw (C) after brief cooldown triggers instant Rematch!
     if (gameState.roundState === 'MATCH_OVER') {
       if (matchEndCooldown > 0) {
         matchEndCooldown--;
-      } else if (localIn & (INPUT_BITS.ATTACK | INPUT_BITS.ANTIAIR | INPUT_BITS.THROW)) {
+      } else if (actionPressed && !prevRematchBtnDown) {
+        prevRematchBtnDown = true;
         triggerInstantRematch();
         break;
       }
+      prevRematchBtnDown = actionPressed;
+    } else {
+      prevRematchBtnDown = false;
     }
 
     const cpuIn = netEngine.isOnline ? 0 : trainerAI.getInput(gameState);
