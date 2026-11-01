@@ -1,42 +1,34 @@
-const CACHE_NAME = 'footsies-dojo-v11';
-const ASSETS = [
-  './',
-  './index.html',
-  './main.js?v=11',
-  './state.js?v=11',
-  './network.js?v=11',
-  './dojo_ai.js?v=11',
-  './renderer.js?v=11',
-  './audio.js?v=11',
-  './icon.svg',
-  './manifest.json'
-];
+const CACHE_NAME = 'footsies-dojo-v12';
 
-self.addEventListener('install', (event) => {
+self.addEventListener('install', () => {
   self.skipWaiting();
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(ASSETS))
-  );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+      .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ type: 'window' }))
+      .then((clients) => {
+        // Force any tab stuck on old v9/v10 cached HTML to reload fresh from network
+        clients.forEach((client) => {
+          if (client.url && 'navigate' in client) {
+            client.navigate(client.url).catch(() => {});
+          }
+        });
+      })
   );
 });
 
-// Network-first with no-cache so GitHub Pages updates reflect immediately on mobile Safari/Chrome
+// Safe network-first fetch (NOTE: never pass { cache: 'no-cache' } with a mode:'navigate' Request object, as it throws TypeError!)
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
+  const isSameOrigin = event.request.url.startsWith(self.location.origin);
   event.respondWith(
-    fetch(event.request, { cache: 'no-cache' })
-      .then((res) => {
-        const copy = res.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
-        return res;
-      })
-      .catch(() => caches.match(event.request))
+    (isSameOrigin
+      ? fetch(event.request.url, { cache: 'no-cache' })
+      : fetch(event.request)
+    ).catch(() => caches.match(event.request))
   );
 });

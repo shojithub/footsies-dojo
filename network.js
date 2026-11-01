@@ -1,5 +1,5 @@
 // P2P Network Transport (Real WebRTC DataChannel + Rollback Netcode Engine)
-import { cloneState, stepGameState } from './state.js?v=11';
+import { cloneState, stepGameState } from './state.js?v=12';
 
 const PEER_PREFIX = 'footsies-dojo-p2p-v2-';
 

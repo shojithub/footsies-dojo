@@ -456,6 +456,7 @@
         <div class="net-mini">
           <span><strong id="metricRtt">8ms</strong></span>
           <span>RB:<strong id="metricRollback">0F</strong></span>
+          <span style="color:#64748b;">v12</span>
         </div>
       </div>
       <div class="quick-tools">
@@ -582,11 +583,14 @@
     </div>
   </div>
 
-  <script type="module" src="./main.js?v=11"></script>
+  <script type="module" src="./main.js?v=12"></script>
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js?v=11').then((reg) => reg.update()).catch(() => {});
+        if ('caches' in window) {
+          caches.keys().then((keys) => keys.forEach((k) => caches.delete(k))).catch(() => {});
+        }
+        navigator.serviceWorker.register('./sw.js?v=12').then((reg) => reg.update()).catch(() => {});
       });
     }
   </script>

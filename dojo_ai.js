@@ -1,5 +1,5 @@
 // Specialized Training Dojo AI for practicing Anti-Air, Close RPS (3-sukumi), and Whiff Punishing
-import { INPUT_BITS, FighterState } from './state.js?v=11';
+import { INPUT_BITS, FighterState } from './state.js?v=12';
 
 export const DOJO_MODES = {
   ANTIAIR_DRILL: 'ANTIAIR_DRILL',     // Drill 1: Ground Footsies + Sudden Jump-in! (Practice pressing B on reaction)
@@ -109,36 +109,35 @@ export class DojoTrainerAI {
     if (this.mode === DOJO_MODES.ANTIAIR_DRILL) {
       this.currentHint = '【対空道場】ランダムな前後ステップ・A牽制・フェイントに惑わされず、飛んだ瞬間だけ【B：対空】！';
 
-      // Close gap proactively into combat range (<= 225) without wasting cooldown!
-      if (dist > 225) {
+      // Close gap proactively into combat range (<= 245) without wasting cooldown!
+      if (dist > 245) {
         return towardBit;
       }
 
       // When cooldown expires, ALWAYS commit to a proactive offensive action (Jump or Ground Poke)
       if (this.cooldown === 0 && this.isAiActionable(ai)) {
         if (!this.nextOffense) {
-          this.nextOffense = Math.random() < 0.54 ? 'JUMP' : 'POKE';
+          this.nextOffense = Math.random() < 0.55 ? 'JUMP' : 'POKE';
         }
 
         if (this.nextOffense === 'JUMP') {
           if (dist < 130) {
-            // Slightly too close for a clean jump arc; take a brief step back or poke instead
             if (Math.random() < 0.5) {
               this.nextOffense = 'POKE';
             } else {
               return awayBit;
             }
           } else {
-            // 🦅 Sudden Jump-In! Next action cooldown is randomized (24F ~ 82F)
+            // 🦅 Sudden Jump-In! Next action cooldown is randomized (22F ~ 82F)
             this.nextOffense = null;
-            this.cooldown = Math.random() < 0.3 ? randInt(22, 38) : randInt(40, 82);
+            this.cooldown = Math.random() < 0.32 ? randInt(22, 38) : randInt(40, 82);
             this.moveTimer = randInt(6, 15);
             return towardBit | INPUT_BITS.JUMP;
           }
         }
 
         if (this.nextOffense === 'POKE') {
-          // Walk into A poke range (<= 190) before swinging so it actually threatens/hits the player!
+          // Walk into A poke range (<= 192) before swinging so it actually threatens/hits the player!
           if (dist > 192) {
             return towardBit;
           }
