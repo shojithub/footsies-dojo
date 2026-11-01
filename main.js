@@ -457,6 +457,7 @@ function handleCoachingEvents(ev) {
   }
   if (ev.type === 'ROUND_OVER') {
     sound.playHit(true);
+    renderer.triggerImpact(7);
     return;
   }
   if (ev.type === 'NEXT_ROUND') {
@@ -496,11 +497,14 @@ function handleCoachingEvents(ev) {
     } else {
       sound.playHit(true);
     }
+    renderer.triggerImpact(8);
     matchEndCooldown = 30; // Brief cooldown so the winning blow doesn't accidentally press Rematch
     return;
   }
   if (ev.type === 'BLOCKED') {
     sound.playBlock();
+    renderer.triggerImpact(3);
+    if (!netEngine.isOnline) hitstopFrames = 2;
     coachingPopup = {
       title: ev.title,
       reason: ev.reason,
@@ -510,6 +514,8 @@ function handleCoachingEvents(ev) {
     return;
   }
   if (ev.type === 'HIT') {
+    renderer.triggerImpact(ev.isHeavy ? 6 : 4);
+    if (!netEngine.isOnline) hitstopFrames = ev.isHeavy ? 3 : 2;
     const iAmAttacker = ev.attacker === myLabel;
     if (ev.category === 'ANTIAIR_SUCCESS' && iAmAttacker) {
       sound.playSuccessChime();
@@ -559,12 +565,38 @@ function updateStatsUI() {
   document.getElementById('statWhiff').textContent = `${stats.whiffPunishes}`;
 }
 
-// Fixed 60fps Game Loop with accumulator
+// Fixed 60fps Game Loop with accumulator + Zero-Allocation DOM Dirty Check
 let lastTime = performance.now();
 const STEP_MS = 1000 / 60;
 let accumulator = 0;
 let matchEndCooldown = 0;
 let prevRematchBtnDown = false;
+let hitstopFrames = 0;
+
+// Cached HUD Elements & Last Written Values (Prevents redundant 60fps DOM layout reflows!)
+const hudEls = {
+  p1HpFill: document.getElementById('p1HpFill'),
+  p1HpTrail: document.getElementById('p1HpTrail'),
+  p2HpFill: document.getElementById('p2HpFill'),
+  p2HpTrail: document.getElementById('p2HpTrail'),
+  p1Stars: document.getElementById('p1Stars'),
+  p2Stars: document.getElementById('p2Stars'),
+  roundTimerBox: document.getElementById('roundTimerBox'),
+  dojoHintText: document.getElementById('dojoHintText'),
+  metricRtt: document.getElementById('metricRtt'),
+  metricRollback: document.getElementById('metricRollback'),
+};
+const uiCache = {
+  p1Hp: -1,
+  p2Hp: -1,
+  p1Wins: -1,
+  p2Wins: -1,
+  timerSec: -1,
+  hint: '',
+  routeKey: '',
+  rttMs: -1,
+  rbFrames: -1,
+};
 
 function starsText(wins) {
   if (wins >= 2) return '★★';
@@ -578,6 +610,12 @@ function gameLoop(now) {
   accumulator += delta;
 
   while (accumulator >= STEP_MS) {
+    if (hitstopFrames > 0 && !netEngine.isOnline) {
+      hitstopFrames--;
+      accumulator -= STEP_MS;
+      continue;
+    }
+
     const localIn = getLocalInput();
     const actionPressed = (localIn & (INPUT_BITS.ATTACK | INPUT_BITS.ANTIAIR | INPUT_BITS.THROW)) !== 0;
 
@@ -608,20 +646,55 @@ function gameLoop(now) {
     accumulator -= STEP_MS;
   }
 
-  document.getElementById('p1HpFill').style.width = `${gameState.p1.hp}%`;
-  document.getElementById('p2HpFill').style.width = `${gameState.p2.hp}%`;
-  document.getElementById('p1Stars').textContent = starsText(gameState.p1Wins);
-  document.getElementById('p2Stars').textContent = starsText(gameState.p2Wins);
-  document.getElementById('roundTimerBox').textContent = String(Math.ceil(gameState.roundTimer / 60));
+  // Dirty-Checked HUD Updates (Only writes to DOM when a value actually changes!)
+  if (uiCache.p1Hp !== gameState.p1.hp) {
+    uiCache.p1Hp = gameState.p1.hp;
+    const w = `${gameState.p1.hp}%`;
+    hudEls.p1HpFill.style.width = w;
+    if (hudEls.p1HpTrail) hudEls.p1HpTrail.style.width = w;
+  }
+  if (uiCache.p2Hp !== gameState.p2.hp) {
+    uiCache.p2Hp = gameState.p2.hp;
+    const w = `${gameState.p2.hp}%`;
+    hudEls.p2HpFill.style.width = w;
+    if (hudEls.p2HpTrail) hudEls.p2HpTrail.style.width = w;
+  }
+  if (uiCache.p1Wins !== gameState.p1Wins) {
+    uiCache.p1Wins = gameState.p1Wins;
+    hudEls.p1Stars.textContent = starsText(gameState.p1Wins);
+  }
+  if (uiCache.p2Wins !== gameState.p2Wins) {
+    uiCache.p2Wins = gameState.p2Wins;
+    hudEls.p2Stars.textContent = starsText(gameState.p2Wins);
+  }
+  const timerSec = Math.ceil(gameState.roundTimer / 60);
+  if (uiCache.timerSec !== timerSec) {
+    uiCache.timerSec = timerSec;
+    hudEls.roundTimerBox.textContent = String(timerSec);
+  }
 
-  document.getElementById('dojoHintText').textContent = netEngine.isOnline
+  const nextHint = netEngine.isOnline
     ? `⚡ P2Pオンライン通信対戦中！（ルーム: ${netEngine.roomCode} / あなたは ${netEngine.localPlayerNum}P）`
     : trainerAI.currentHint;
+  if (uiCache.hint !== nextHint) {
+    uiCache.hint = nextHint;
+    hudEls.dojoHintText.textContent = nextHint;
+  }
 
   const metrics = netEngine.getMetrics();
-  updateRouteBadge(metrics.route);
-  document.getElementById('metricRtt').textContent = `${metrics.rttMs}ms`;
-  document.getElementById('metricRollback').textContent = `${metrics.rollbackFrames}F`;
+  const routeKey = `${metrics.route}_${netEngine.isOnline ? 1 : 0}`;
+  if (uiCache.routeKey !== routeKey) {
+    uiCache.routeKey = routeKey;
+    updateRouteBadge(metrics.route);
+  }
+  if (uiCache.rttMs !== metrics.rttMs) {
+    uiCache.rttMs = metrics.rttMs;
+    hudEls.metricRtt.textContent = `${metrics.rttMs}ms`;
+  }
+  if (uiCache.rbFrames !== metrics.rollbackFrames) {
+    uiCache.rbFrames = metrics.rollbackFrames;
+    hudEls.metricRollback.textContent = `${metrics.rollbackFrames}F`;
+  }
 
   renderer.render(gameState, netEngine, coachingPopup);
   requestAnimationFrame(gameLoop);

@@ -19,6 +19,7 @@ export class DojoRenderer {
     this.eyeTrackerGuide = true;  // Shows calm focal point & floor color bridge
     this.stealthSelfMode = false; // 🙈 Blindfold / Curtain over Local Self so player cannot look at Self!
     this.localPlayerNum = 1;      // 1 = P1 is Self, 2 = P2 is Self (in Online P2P Guest mode!)
+    this.shakeMag = 0;            // Lightweight damped screen shake magnitude on hit/block
     this.matchOverlayInfo = {
       p1SetWins: 0,
       p2SetWins: 0,
@@ -65,25 +66,40 @@ export class DojoRenderer {
     this.p2FrameHistory[idx] = this.classifyFrameState(state.p2);
   }
 
+  triggerImpact(shakeAmount = 3.5) {
+    this.shakeMag = Math.max(this.shakeMag, shakeAmount);
+  }
+
   render(state, netEngine, coachingPopup) {
     const ctx = this.ctx;
     const W = this.width;
     const H = this.height;
 
-    // 1. Background & Smooth Mobile Camera Transform
+    // 1. Background & Subpixel Smooth Mobile Camera Transform
     ctx.fillStyle = '#090d16';
     ctx.fillRect(0, 0, W, H);
 
-    // Smoothly center camera between P1 and P2 so characters look big & clear on phone screens
-    const targetCamX = (state.p1.x + state.p2.x) / 2;
-    this.camX += (targetCamX - this.camX) * 0.15;
-    const minCam = W / 2;
-    const maxCam = 1000 - W / 2;
+    // Smoothly center camera between P1 and P2 (subpixel floating-point for zero stair-stepping!)
+    const targetCamX = (state.p1.x + state.p2.x) * 0.5;
+    this.camX += (targetCamX - this.camX) * 0.18;
+    const minCam = W * 0.5;
+    const maxCam = 1000 - W * 0.5;
     const clampedCamX = Math.max(minCam, Math.min(maxCam, this.camX));
-    const offsetX = Math.round(W / 2 - clampedCamX);
+
+    let shakeX = 0;
+    let shakeY = 0;
+    if (this.shakeMag > 0.15) {
+      shakeX = (Math.sin(state.frame * 2.7) * 0.8) * this.shakeMag;
+      shakeY = (Math.cos(state.frame * 3.5) * 0.5) * this.shakeMag;
+      this.shakeMag *= 0.68;
+    } else {
+      this.shakeMag = 0;
+    }
+
+    const offsetX = W * 0.5 - clampedCamX + shakeX;
 
     ctx.save();
-    ctx.translate(offsetX, 0);
+    ctx.translate(offsetX, shakeY);
 
     netEngine.packetPulseIntensity = Math.max(0, netEngine.packetPulseIntensity - 0.06);
     const pulseAlpha = 0.09 + netEngine.packetPulseIntensity * 0.14;
@@ -409,10 +425,15 @@ export class DojoRenderer {
     ctx.restore();
   }
 
-  // Instant Keyframe Stickman (No tweening for crisp 1F visual clarity!)
+  // Crisp Keyframe Stickman with Smooth Footwork, Breathing & Recovery Retraction
   drawKeyframeStickman(ctx, p, isGhost, isSelf = false) {
     const f = p.facing;
-    const x = p.x;
+    // Subtle 2px impact vibration during the first 5 frames of hitstun/blockstun
+    const stunVib =
+      !isGhost && (p.state === FighterState.HIT_STUN || p.state === FighterState.BLOCK_STUN) && p.stateFrame <= 5
+        ? (p.stateFrame % 2 === 0 ? 2.5 : -2.5)
+        : 0;
+    const x = p.x + stunVib;
     const baseY = this.groundY - p.y;
 
     ctx.save();
@@ -421,41 +442,74 @@ export class DojoRenderer {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    // Default Keyframe: IDLE / WALK
-    let head = { x: x, y: baseY - 92 };
-    let neck = { x: x, y: baseY - 76 };
-    let hip = { x: x - f * 4, y: baseY - 40 };
-    let handF = { x: x + f * 24, y: baseY - 64 };
-    let handB = { x: x - f * 16, y: baseY - 58 };
+    // Default Neutral Stance (with subtle idle breathing)
+    const breath = p.state === FighterState.IDLE ? Math.sin(p.stateFrame * 0.12) * 1.8 : 0;
+    let head = { x: x, y: baseY - 92 + breath };
+    let neck = { x: x, y: baseY - 76 + breath };
+    let hip = { x: x - f * 4, y: baseY - 40 + breath * 0.5 };
+    let handF = { x: x + f * 24, y: baseY - 64 + breath * 1.1 };
+    let handB = { x: x - f * 16, y: baseY - 58 + breath * 0.8 };
     let footF = { x: x + f * 18, y: baseY };
     let footB = { x: x - f * 18, y: baseY };
 
-    if (p.state === FighterState.ATTACK) {
-      // 🟥 Sharp Lunging Poke Pose (or Whiff Extended Pose)
-      const isStartup = p.stateFrame < FRAME_DATA.ATTACK.STARTUP;
-      if (isStartup) {
-        head = { x: x - f * 8, y: baseY - 88 };
-        handF = { x: x - f * 12, y: baseY - 68 };
+    if (p.state === FighterState.WALK_FWD || p.state === FighterState.WALK_BACK) {
+      // Smooth Footsie Stride Animation (no sliding on ice!)
+      const dir = p.state === FighterState.WALK_FWD ? 1 : -1;
+      const phase = p.stateFrame * 0.42 * dir;
+      const stride = Math.sin(phase) * 11;
+      const liftF = Math.max(0, Math.cos(phase)) * 4.5;
+      const liftB = Math.max(0, -Math.cos(phase)) * 4.5;
+      const bob = Math.abs(Math.sin(phase)) * 2.2;
+
+      head = { x: x + f * dir * 4, y: baseY - 92 + bob };
+      neck = { x: x + f * dir * 3, y: baseY - 76 + bob };
+      hip = { x: x - f * 2, y: baseY - 40 + bob };
+      handF = { x: x + f * 24 - stride * 0.25, y: baseY - 64 + bob };
+      handB = { x: x - f * 16 + stride * 0.25, y: baseY - 58 + bob };
+      footF = { x: x + f * 18 + stride, y: baseY - liftF };
+      footB = { x: x - f * 18 - stride, y: baseY - liftB };
+    } else if (p.state === FighterState.ATTACK) {
+      // 🟥 Sharp Lunging Poke Pose + Smooth Retraction during Whiff Recovery
+      const startupEnd = FRAME_DATA.ATTACK.STARTUP;
+      const activeEnd = startupEnd + FRAME_DATA.ATTACK.ACTIVE;
+      if (p.stateFrame < startupEnd) {
+        const t = (p.stateFrame + 1) / startupEnd;
+        head = { x: x - f * 8 * t, y: baseY - 88 };
+        handF = { x: x - f * 12 * t, y: baseY - 68 };
       } else {
-        head = { x: x + f * 18, y: baseY - 82 };
-        neck = { x: x + f * 14, y: baseY - 68 };
-        hip = { x: x + f * 6, y: baseY - 36 };
-        handF = { x: x + f * (FRAME_DATA.ATTACK.REACH - 10), y: baseY - 58 };
-        footF = { x: x + f * 34, y: baseY };
-        footB = { x: x - f * 26, y: baseY };
+        // Active stays 100% extended; Recovery smoothly retracts in the second half so whiff punish window remains visually clear!
+        const recovFrame = Math.max(0, p.stateFrame - activeEnd);
+        const pullBack = Math.max(0, (recovFrame - 6) / Math.max(1, FRAME_DATA.ATTACK.RECOVERY - 6));
+        const ext = 1 - pullBack * 0.75;
+        head = { x: x + f * 18 * ext, y: baseY - 92 + 10 * ext };
+        neck = { x: x + f * 14 * ext, y: baseY - 76 + 8 * ext };
+        hip = { x: x + f * 6 * ext, y: baseY - 40 + 4 * ext };
+        handF = { x: x + f * (24 + (FRAME_DATA.ATTACK.REACH - 34) * ext), y: baseY - 58 };
+        footF = { x: x + f * (18 + 16 * ext), y: baseY };
+        footB = { x: x - f * (18 + 8 * ext), y: baseY };
       }
     } else if (p.state === FighterState.ANTIAIR) {
-      // 🟪 Rising Uppercut / Anti-Air Pose!
-      head = { x: x + f * 8, y: baseY - 102 };
-      neck = { x: x + f * 6, y: baseY - 86 };
-      handF = { x: x + f * 48, y: baseY - 170 };
+      // 🟪 Rising Uppercut / Anti-Air Pose + Smooth Recovery Return
+      const activeEnd = FRAME_DATA.ANTIAIR.STARTUP + FRAME_DATA.ANTIAIR.ACTIVE;
+      const recovRatio = p.stateFrame > activeEnd
+        ? Math.min(1, (p.stateFrame - activeEnd) / FRAME_DATA.ANTIAIR.RECOVERY)
+        : 0;
+      const ext = 1 - recovRatio * 0.7;
+      head = { x: x + f * 8 * ext, y: baseY - 92 - 10 * ext };
+      neck = { x: x + f * 6 * ext, y: baseY - 76 - 10 * ext };
+      handF = { x: x + f * (24 + 24 * ext), y: baseY - 64 - 106 * ext };
       handB = { x: x - f * 15, y: baseY - 70 };
-      footF = { x: x + f * 22, y: baseY - 12 };
+      footF = { x: x + f * 22, y: baseY - 12 * ext };
     } else if (p.state === FighterState.THROW) {
-      // 🟩 Grabbing Reach Pose
-      head = { x: x + f * 12, y: baseY - 86 };
-      handF = { x: x + f * 68, y: baseY - 68 };
-      handB = { x: x + f * 58, y: baseY - 52 };
+      // 🟩 Grabbing Reach Pose + Smooth Retraction
+      const activeEnd = FRAME_DATA.THROW.STARTUP + FRAME_DATA.THROW.ACTIVE;
+      const recovRatio = p.stateFrame > activeEnd
+        ? Math.min(1, (p.stateFrame - activeEnd) / FRAME_DATA.THROW.RECOVERY)
+        : 0;
+      const ext = 1 - recovRatio * 0.75;
+      head = { x: x + f * 12 * ext, y: baseY - 86 };
+      handF = { x: x + f * (24 + 44 * ext), y: baseY - 68 };
+      handB = { x: x + f * (16 + 42 * ext), y: baseY - 52 };
     } else if (p.state === FighterState.JUMP_ARC) {
       // 🦅 Dive Kick / Jump Attack Pose
       head = { x: x + f * 10, y: baseY - 82 };
