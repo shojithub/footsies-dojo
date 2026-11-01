@@ -99,7 +99,15 @@ export function createInitialPlayer(x, facing) {
   };
 }
 
-export function createInitialGameState(p1Wins = 0, p2Wins = 0, roundNum = 1) {
+// Deterministic hash so 1P & 2P in P2P mode get the exact same random Left/Right side every round!
+export function shouldSwapSidesForRound(seed = 1, roundNum = 1) {
+  let h = Math.imul((seed | 0) ^ Math.imul(roundNum | 0, 0x9e3779b9), 0x85ebca6b) >>> 0;
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35) >>> 0;
+  return ((h ^ (h >>> 16)) & 1) === 1;
+}
+
+export function createInitialGameState(p1Wins = 0, p2Wins = 0, roundNum = 1, matchSeed = 1) {
+  const swapped = shouldSwapSidesForRound(matchSeed, roundNum);
   return {
     frame: 0,
     hitstopFrames: 0,
@@ -107,11 +115,12 @@ export function createInitialGameState(p1Wins = 0, p2Wins = 0, roundNum = 1) {
     roundNum,
     p1Wins,
     p2Wins,
+    matchSeed,
     roundState: 'FIGHT', // 'FIGHT' | 'ROUND_OVER' | 'MATCH_OVER'
     roundOverTimer: 0,
     winner: null,        // 'P1' | 'P2' | 'DRAW'
-    p1: createInitialPlayer(320, 1),
-    p2: createInitialPlayer(680, -1),
+    p1: createInitialPlayer(swapped ? 680 : 320, swapped ? -1 : 1),
+    p2: createInitialPlayer(swapped ? 320 : 680, swapped ? 1 : -1),
     lastEvent: null,
   };
 }
@@ -124,6 +133,7 @@ export function cloneState(state) {
     roundNum: state.roundNum,
     p1Wins: state.p1Wins,
     p2Wins: state.p2Wins,
+    matchSeed: state.matchSeed,
     roundState: state.roundState,
     roundOverTimer: state.roundOverTimer,
     winner: state.winner,
@@ -236,17 +246,18 @@ export function stepGameState(state, p1Input, p2Input) {
   if (state.roundState === 'ROUND_OVER') {
     state.roundOverTimer--;
     if (state.roundOverTimer <= 0) {
-      // Start Next Round automatically!
+      // Start Next Round automatically with randomized Left/Right side!
       const nextRound = state.roundNum + 1;
       const p1W = state.p1Wins;
       const p2W = state.p2Wins;
+      const swapped = shouldSwapSidesForRound(state.matchSeed, nextRound);
       state.roundNum = nextRound;
       state.roundTimer = 30 * 60;
       state.roundState = 'FIGHT';
       state.winner = null;
-      state.p1 = createInitialPlayer(320, 1);
-      state.p2 = createInitialPlayer(680, -1);
-      state.lastEvent = { type: 'NEXT_ROUND', roundNum: nextRound, p1Wins: p1W, p2Wins: p2W };
+      state.p1 = createInitialPlayer(swapped ? 680 : 320, swapped ? -1 : 1);
+      state.p2 = createInitialPlayer(swapped ? 320 : 680, swapped ? 1 : -1);
+      state.lastEvent = { type: 'NEXT_ROUND', roundNum: nextRound, p1Wins: p1W, p2Wins: p2W, swapped };
     }
     state.p1.prevInput = p1Input;
     state.p2.prevInput = p2Input;

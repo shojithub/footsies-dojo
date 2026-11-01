@@ -144,9 +144,10 @@ export class DojoRenderer {
       ctx.restore();
     }
 
-    // 4.5 Draw Fighters (Stickman + Color-coded Hitboxes)
-    this.drawFighter(ctx, state.p1, '1P', false, false);
-    this.drawFighter(ctx, state.p2, '2P', false, false);
+    // 4.5 Draw Fighters (Stickman + Color-coded Hitboxes + Overhead Self/Enemy Tag)
+    const isP1Self = this.localPlayerNum !== 2;
+    this.drawFighter(ctx, state.p1, isP1Self ? '▼YOU (1P)' : '1P', false, false, isP1Self);
+    this.drawFighter(ctx, state.p2, !isP1Self ? '▼YOU (2P)' : '2P', false, false, !isP1Self);
 
     // 5. 🙈 Self-Character Blindfold Cover (ON/OFF) - Always covers SELF and leaves ENEMY visible!
     if (this.stealthSelfMode) {
@@ -225,7 +226,7 @@ export class DojoRenderer {
     ctx.restore();
   }
 
-  drawFighter(ctx, p, label, isGhost, isStealthSelf = false) {
+  drawFighter(ctx, p, label, isGhost, isStealthSelf = false, isSelf = false) {
     const boxes = getBoxes(p);
     const screenY = (worldY) => this.groundY - worldY;
 
@@ -265,6 +266,15 @@ export class DojoRenderer {
     ctx.fillRect(hx, hy, hw, hh);
     ctx.strokeRect(hx, hy, hw, hh);
 
+    // Overhead Player Tag (Instant Left/Right recognition on randomized starts)
+    if (!isGhost && label) {
+      ctx.fillStyle = isSelf ? '#38bdf8' : '#94a3b8';
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(label, p.x, hy - 8);
+      ctx.textAlign = 'left';
+    }
+
     // --- B. Draw Active Attack Hitbox ---
     if (boxes.hitbox && !isGhost) {
       const ab = boxes.hitbox;
@@ -291,7 +301,7 @@ export class DojoRenderer {
     }
 
     // --- C. Draw Snap Keyframe Stickman ---
-    this.drawKeyframeStickman(ctx, p, isGhost);
+    this.drawKeyframeStickman(ctx, p, isGhost, isSelf);
     ctx.restore();
   }
 
@@ -400,13 +410,13 @@ export class DojoRenderer {
   }
 
   // Instant Keyframe Stickman (No tweening for crisp 1F visual clarity!)
-  drawKeyframeStickman(ctx, p, isGhost) {
+  drawKeyframeStickman(ctx, p, isGhost, isSelf = false) {
     const f = p.facing;
     const x = p.x;
     const baseY = this.groundY - p.y;
 
     ctx.save();
-    ctx.strokeStyle = isGhost ? '#22d3ee' : p.facing === 1 ? '#f8fafc' : '#cbd5e1';
+    ctx.strokeStyle = isGhost ? '#22d3ee' : isSelf ? '#f8fafc' : '#cbd5e1';
     ctx.lineWidth = 4;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';

@@ -188,7 +188,7 @@ export class P2PRollbackEngine {
         });
       }
       if (this.onMatchStart) {
-        this.onMatchStart(this.localPlayerNum);
+        this.onMatchStart(this.localPlayerNum, Number(this.roomCode) || 1234);
       }
       this.inspectWebRTCRoute();
     });
@@ -322,7 +322,7 @@ export class P2PRollbackEngine {
     }
 
     if (data.t === 'RESET_SYNC') {
-      if (this.onMatchStart) this.onMatchStart(this.localPlayerNum);
+      if (this.onMatchStart) this.onMatchStart(this.localPlayerNum, data.seed || 1234);
       return;
     }
 

@@ -6,11 +6,9 @@ import { sound } from './audio.js';
 
 const canvas = document.getElementById('gameCanvas');
 const renderer = new DojoRenderer(canvas);
-let gameState = createInitialGameState();
+let gameState = createInitialGameState(0, 0, 1, Math.floor(Math.random() * 1000000));
 const netEngine = new P2PRollbackEngine(gameState);
 const trainerAI = new DojoTrainerAI();
-
-let startOnRightSide = false;
 
 // Training & Match Statistics
 const stats = {
@@ -198,22 +196,26 @@ function onP2PStatusUpdate(info) {
   }
 }
 
-netEngine.onMatchStart = (myPlayerNum) => {
+netEngine.onMatchStart = (myPlayerNum, sharedSeed = 1234) => {
   renderer.localPlayerNum = myPlayerNum;
-  startOnRightSide = false;
   clearRematchState();
-  gameState = createInitialGameState();
+  gameState = createInitialGameState(0, 0, 1, sharedSeed);
   netEngine.resetBuffers(gameState);
-  renderer.smoothBlindX = myPlayerNum === 2 ? gameState.p2.x : gameState.p1.x;
+  const selfP = myPlayerNum === 2 ? gameState.p2 : gameState.p1;
+  const enemyP = myPlayerNum === 2 ? gameState.p1 : gameState.p2;
+  const amIOnLeft = selfP.x < enemyP.x;
+  renderer.smoothBlindX = selfP.x;
   renderer.camX = 500;
   updateRoleLabels();
   updateStatsUI();
 
   coachingPopup = {
-    title: `⚡ P2Pオンライン対戦スタート！あなたは【${myPlayerNum}P (${myPlayerNum === 1 ? '左側' : '右側'})】です！`,
-    reason: '目隠しボタン(🙈)を押すと自分のキャラだけを隠して相手キャラに集中できます！',
+    title: `⚡ P2P対戦スタート！あなたは【${myPlayerNum}P（今回は${amIOnLeft ? '左側' : '右側'}スタート）】！`,
+    reason: amIOnLeft
+      ? '今ラウンドは左側（▶前進 / ◀ガード）です！毎ラウンド左右がランダムに入れ替わります！'
+      : '今ラウンドは右側（◀前進 / ▶ガード）です！毎ラウンド左右がランダムに入れ替わります！',
     color: '#4ade80',
-    timer: 260,
+    timer: 240,
   };
 };
 
@@ -224,11 +226,12 @@ netEngine.onRematchSignal = (sig) => {
     sound.playJumpAlert();
     syncOverlayInfo();
 
-    // If local player is already ready, launch next match immediately!
+    // If local player is already ready, launch next match immediately with a new shared random seed!
     if (rematchState.myReady && netEngine.conn && netEngine.conn.open) {
+      const nextSeed = Math.floor(Math.random() * 1000000);
       sound.playSuccessChime();
-      netEngine.conn.send({ t: 'RESET_SYNC' });
-      netEngine.onMatchStart(netEngine.localPlayerNum);
+      netEngine.conn.send({ t: 'RESET_SYNC', seed: nextSeed });
+      netEngine.onMatchStart(netEngine.localPlayerNum, nextSeed);
     }
   } else if (sig.type === 'ACK_RECEIVED') {
     rematchState.responseMs = sig.rttMs || netEngine.realRttMs || 8;
@@ -328,23 +331,28 @@ document.getElementById('toggleJumpAlert').addEventListener('change', (e) => {
 });
 document.getElementById('btnResetPos').addEventListener('click', () => {
   if (netEngine.isOnline && netEngine.conn && netEngine.conn.open) {
-    netEngine.conn.send({ t: 'RESET_SYNC' });
-    netEngine.onMatchStart(netEngine.localPlayerNum);
+    const nextSeed = Math.floor(Math.random() * 1000000);
+    netEngine.conn.send({ t: 'RESET_SYNC', seed: nextSeed });
+    netEngine.onMatchStart(netEngine.localPlayerNum, nextSeed);
     return;
   }
   resetPositions();
 });
 document.getElementById('btnSwapSide').addEventListener('click', () => {
   if (netEngine.isOnline) return;
-  startOnRightSide = !startOnRightSide;
-  resetPositions();
+  const tmpX = gameState.p1.x;
+  gameState.p1.x = gameState.p2.x;
+  gameState.p2.x = tmpX;
+  const p1OnRight = gameState.p1.x > gameState.p2.x;
+  gameState.p1.facing = p1OnRight ? -1 : 1;
+  gameState.p2.facing = p1OnRight ? 1 : -1;
+  renderer.smoothBlindX = gameState.p1.x;
+  netEngine.resetBuffers(gameState);
   coachingPopup = {
-    title: startOnRightSide ? '🔄 右側（2P側）スタートに切替！' : '🔄 左側（1P側）スタートに切替！',
-    reason: startOnRightSide
-      ? '自キャラが右側（右移動がガード、左移動が前進）になります。目隠しも右側を覆います！'
-      : '自キャラが左側（左移動がガード、右移動が前進）になります。',
+    title: p1OnRight ? '🔄 右側（◀前進 / ▶ガード）に手動切替！' : '🔄 左側（▶前進 / ◀ガード）に手動切替！',
+    reason: '通常のラウンド開始・再戦時は1Pと2Pの左右位置がランダムに決まります！',
     color: '#38bdf8',
-    timer: 200,
+    timer: 180,
   };
 });
 
@@ -360,9 +368,10 @@ function triggerInstantRematch() {
   if (netEngine.isOnline && netEngine.conn && netEngine.conn.open) {
     // If opponent already pressed Ready (or we already pressed Ready once and tap again), launch immediately!
     if (rematchState.remoteReady || rematchState.myReady) {
+      const nextSeed = Math.floor(Math.random() * 1000000);
       sound.playSuccessChime();
-      netEngine.conn.send({ t: 'RESET_SYNC' });
-      netEngine.onMatchStart(netEngine.localPlayerNum);
+      netEngine.conn.send({ t: 'RESET_SYNC', seed: nextSeed });
+      netEngine.onMatchStart(netEngine.localPlayerNum, nextSeed);
       return;
     }
     // First tap: send instant P2P Rematch Ready signal so opponent sees our button press in ~8ms!
@@ -380,32 +389,40 @@ function triggerInstantRematch() {
 function applyModePositions(state) {
   const mode = trainerAI.mode;
   if (!netEngine.isOnline) {
+    const p1OnRight = state.p1.x > state.p2.x;
     if (mode === DOJO_MODES.RPS_DRILL) {
-      state.p1.x = 450;
-      state.p2.x = 525;
+      state.p1.x = p1OnRight ? 538 : 462;
+      state.p2.x = p1OnRight ? 462 : 538;
     } else if (mode === DOJO_MODES.WHIFF_DRILL) {
-      state.p1.x = 400;
-      state.p2.x = 580;
+      state.p1.x = p1OnRight ? 590 : 410;
+      state.p2.x = p1OnRight ? 410 : 590;
     }
-    if (startOnRightSide) {
-      const tmpX = state.p1.x;
-      state.p1.x = 1000 - tmpX;
-      state.p2.x = 1000 - state.p2.x;
-      state.p1.facing = -1;
-      state.p2.facing = 1;
-    }
+    state.p1.facing = p1OnRight ? -1 : 1;
+    state.p2.facing = p1OnRight ? 1 : -1;
   }
 }
 
 function resetPositions() {
   clearRematchState();
-  gameState = createInitialGameState(0, 0, 1);
+  const nextSeed = Math.floor(Math.random() * 1000000);
+  gameState = createInitialGameState(0, 0, 1, nextSeed);
   applyModePositions(gameState);
   renderer.localPlayerNum = netEngine.isOnline ? netEngine.localPlayerNum : 1;
   const selfP = renderer.localPlayerNum === 2 ? gameState.p2 : gameState.p1;
+  const enemyP = renderer.localPlayerNum === 2 ? gameState.p1 : gameState.p2;
+  const amIOnLeft = selfP.x < enemyP.x;
   renderer.smoothBlindX = selfP.x;
   renderer.camX = (gameState.p1.x + gameState.p2.x) / 2;
   netEngine.resetBuffers(gameState);
+
+  coachingPopup = {
+    title: `🔔 NEW MATCH！今回は【${amIOnLeft ? '左側' : '右側'}スタート】！`,
+    reason: amIOnLeft
+      ? 'あなたは【左側（▶前進 / ◀ガード）】です！毎ラウンド左右がランダムに入れ替わります！'
+      : 'あなたは【右側（◀前進 / ▶ガード）】です！毎ラウンド左右がランダムに入れ替わります！',
+    color: '#38bdf8',
+    timer: 130,
+  };
 }
 
 function updateRouteBadge(route) {
@@ -444,12 +461,18 @@ function handleCoachingEvents(ev) {
   }
   if (ev.type === 'NEXT_ROUND') {
     applyModePositions(gameState);
+    const selfP = renderer.localPlayerNum === 2 ? gameState.p2 : gameState.p1;
+    const enemyP = renderer.localPlayerNum === 2 ? gameState.p1 : gameState.p2;
+    const amIOnLeft = selfP.x < enemyP.x;
+    renderer.smoothBlindX = selfP.x;
     sound.playJumpAlert();
     coachingPopup = {
-      title: `🔔 ROUND ${ev.roundNum} FIGHT!!`,
-      reason: '2ラウンド先取で勝利です！相手の動きをよく見て反応しましょう！',
+      title: `🔔 ROUND ${ev.roundNum} FIGHT!! 【今回は${amIOnLeft ? '左側' : '右側'}スタート！】`,
+      reason: amIOnLeft
+        ? 'あなたは【左側（▶前進 / ◀ガード）】です！相手の動きをよく見て反応しましょう！'
+        : 'あなたは【右側（◀前進 / ▶ガード）】です！相手の動きをよく見て反応しましょう！',
       color: '#38bdf8',
-      timer: 110,
+      timer: 120,
     };
     return;
   }
