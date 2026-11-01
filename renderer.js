@@ -1,5 +1,5 @@
 // Ultra-Low-Latency Procedural Canvas Renderer (Stickman + Hitboxes + Range Guides + 60F Meter)
-import { FighterState, FRAME_DATA, getBoxes } from './state.js?v=13';
+import { FighterState, FRAME_DATA, getBoxes } from './state.js?v=14';
 
 export class DojoRenderer {
   constructor(canvas) {
@@ -247,6 +247,27 @@ export class DojoRenderer {
     const screenY = (worldY) => this.groundY - worldY;
 
     ctx.save();
+
+    // --- 0. Self Footstep Ground Ring (◎) on the Floor ---
+    // Drawn before stealth-alpha so even in peripheral vision (or blindfold mode) you immediately know your own foot position!
+    if (isSelf && !isGhost) {
+      const ringY = this.groundY + 1;
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.24)';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.ellipse(p.x, ringY, 34, 8.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Inner core ring (◎)
+      ctx.strokeStyle = 'rgba(186, 230, 253, 0.85)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.ellipse(p.x, ringY, 17, 4.2, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
     if (isStealthSelf) {
       // Make P1 nearly invisible (12% opacity) so player is forced to watch P2 only!
       ctx.globalAlpha = 0.12;
