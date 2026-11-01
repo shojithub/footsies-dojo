@@ -47,8 +47,10 @@ export const FRAME_DATA = {
   ATTACK: {
     STARTUP: 6,
     ACTIVE: 3,
-    RECOVERY: 17, // 17F of yellow vulnerable recovery on whiff
+    RECOVERY: 17,       // 17F recovery when it hits/blocks on ground (snappy ground pace)
+    WHIFF_RECOVERY: 29, // 29F yellow vulnerable recovery on whiff (Total 38F -> Jump-ins punish whiffed A!)
     TOTAL: 26,
+    WHIFF_TOTAL: 38,
     REACH: 165,
     EXTENDED_HURTBOX: 145, // Leaves limb out during recovery for whiff punishing!
     DAMAGE: 22,
@@ -419,7 +421,8 @@ function updatePlayerState(p, input, opponent, currentFrame, playerIndex, state)
 
   // Handle active attack/jump completions
   if (p.state === FighterState.ATTACK) {
-    if (p.stateFrame >= FRAME_DATA.ATTACK.TOTAL) {
+    const attackTotal = p.hasHit ? FRAME_DATA.ATTACK.TOTAL : FRAME_DATA.ATTACK.WHIFF_TOTAL;
+    if (p.stateFrame >= attackTotal) {
       p.state = FighterState.IDLE;
       p.stateFrame = 0;
     }

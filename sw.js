@@ -1,4 +1,4 @@
-const CACHE_NAME = 'footsies-dojo-v12';
+const CACHE_NAME = 'footsies-dojo-v13';
 
 self.addEventListener('install', () => {
   self.skipWaiting();

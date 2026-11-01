@@ -1,8 +1,8 @@
-import { INPUT_BITS, createInitialGameState } from './state.js?v=12';
-import { P2PRollbackEngine } from './network.js?v=12';
-import { DOJO_MODES, DojoTrainerAI } from './dojo_ai.js?v=12';
-import { DojoRenderer } from './renderer.js?v=12';
-import { sound } from './audio.js?v=12';
+import { INPUT_BITS, createInitialGameState } from './state.js?v=13';
+import { P2PRollbackEngine } from './network.js?v=13';
+import { DOJO_MODES, DojoTrainerAI } from './dojo_ai.js?v=13';
+import { DojoRenderer } from './renderer.js?v=13';
+import { sound } from './audio.js?v=13';
 
 const canvas = document.getElementById('gameCanvas');
 const renderer = new DojoRenderer(canvas);

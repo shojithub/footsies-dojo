@@ -1,5 +1,5 @@
 // Ultra-Low-Latency Procedural Canvas Renderer (Stickman + Hitboxes + Range Guides + 60F Meter)
-import { FighterState, FRAME_DATA, getBoxes } from './state.js?v=12';
+import { FighterState, FRAME_DATA, getBoxes } from './state.js?v=13';
 
 export class DojoRenderer {
   constructor(canvas) {
@@ -478,8 +478,10 @@ export class DojoRenderer {
         handF = { x: x - f * 12 * t, y: baseY - 68 };
       } else {
         // Active stays 100% extended; Recovery smoothly retracts in the second half so whiff punish window remains visually clear!
+        const recovTotal = p.hasHit ? FRAME_DATA.ATTACK.RECOVERY : FRAME_DATA.ATTACK.WHIFF_RECOVERY;
+        const holdFrames = p.hasHit ? 6 : 12;
         const recovFrame = Math.max(0, p.stateFrame - activeEnd);
-        const pullBack = Math.max(0, (recovFrame - 6) / Math.max(1, FRAME_DATA.ATTACK.RECOVERY - 6));
+        const pullBack = Math.max(0, (recovFrame - holdFrames) / Math.max(1, recovTotal - holdFrames));
         const ext = 1 - pullBack * 0.75;
         head = { x: x + f * 18 * ext, y: baseY - 92 + 10 * ext };
         neck = { x: x + f * 14 * ext, y: baseY - 76 + 8 * ext };
