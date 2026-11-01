@@ -1,0 +1,18 @@
+{
+  "name": "1D FOOTSIES P2P - 格ゲー反復道場",
+  "short_name": "格ゲー道場P2P",
+  "description": "対空・差し返し・3すくみをスマホで反復練習＆WebRTC P2Pオンライン対戦できる格闘ゲーム道場",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#070a12",
+  "theme_color": "#070a12",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

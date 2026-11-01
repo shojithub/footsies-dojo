@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="110" fill="#090d16"/>
+  <rect x="24" y="24" width="464" height="464" rx="92" fill="none" stroke="#38bdf8" stroke-width="12"/>
+  <!-- Left Stickman (Blue Hurtbox) -->
+  <rect x="88" y="150" width="110" height="220" fill="rgba(59,130,246,0.28)" stroke="#3b82f6" stroke-width="8"/>
+  <circle cx="143" cy="195" r="24" fill="none" stroke="#f8fafc" stroke-width="12"/>
+  <path d="M143 220 L143 300 M143 245 L245 235 M143 300 L115 365 M143 300 L175 365" stroke="#f8fafc" stroke-width="12" stroke-linecap="round"/>
+  <!-- Right Stickman (Purple Anti-Air Upper) -->
+  <rect x="305" y="110" width="115" height="260" fill="rgba(168,85,247,0.32)" stroke="#c084fc" stroke-width="8"/>
+  <circle cx="362" cy="165" r="24" fill="none" stroke="#f8fafc" stroke-width="12"/>
+  <path d="M362 190 L362 280 M362 215 L295 120 M362 280 L330 365 M362 280 L395 365" stroke="#f8fafc" stroke-width="12" stroke-linecap="round"/>
+  <!-- Floor Line -->
+  <line x1="60" y1="385" x2="452" y2="385" stroke="#38bdf8" stroke-width="10"/>
+  <text x="256" y="445" fill="#38bdf8" font-family="monospace, sans-serif" font-weight="900" font-size="44" text-anchor="middle">1D DOJO P2P</text>
+</svg>
