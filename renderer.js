@@ -173,8 +173,13 @@ export class DojoRenderer {
     this.drawFrameMeter(ctx, state.frame);
 
     // 8. Draw Coaching Answer Popup Banner
-    if (coachingPopup && coachingPopup.timer > 0) {
+    if (coachingPopup && coachingPopup.timer > 0 && state.roundState === 'FIGHT') {
       this.drawCoachingPopup(ctx, coachingPopup);
+    }
+
+    // 9. Draw Round Over / Match Over Result Banner!
+    if (state.roundState === 'ROUND_OVER' || state.roundState === 'MATCH_OVER') {
+      this.drawRoundOrMatchResult(ctx, state);
     }
   }
 
@@ -547,6 +552,84 @@ export class DojoRenderer {
     ctx.fillStyle = '#f1f5f9';
     ctx.font = '13px sans-serif';
     ctx.fillText(popup.reason, this.width / 2, by + 49);
+    ctx.restore();
+  }
+
+  drawRoundOrMatchResult(ctx, state) {
+    const W = this.width;
+    const H = this.height;
+    const mySide = this.localPlayerNum === 2 ? 'P2' : 'P1';
+    const didWin = state.winner === mySide;
+
+    ctx.save();
+    if (state.roundState === 'ROUND_OVER') {
+      // Snappy Round K.O. Banner
+      ctx.fillStyle = 'rgba(9, 13, 22, 0.78)';
+      ctx.fillRect(0, 120, W, 110);
+      ctx.strokeStyle = didWin ? '#4ade80' : '#f87171';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(0, 120);
+      ctx.lineTo(W, 120);
+      ctx.moveTo(0, 230);
+      ctx.lineTo(W, 230);
+      ctx.stroke();
+
+      ctx.fillStyle = didWin ? '#4ade80' : '#f87171';
+      ctx.font = '900 34px sans-serif';
+      ctx.textAlign = 'center';
+      const msg = state.roundTimer <= 0 ? 'TIME UP!' : 'K.O.!!';
+      ctx.fillText(`${msg}  ${didWin ? 'ROUND WIN!' : 'ROUND LOSE...'}`, W / 2, 172);
+
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(`まもなく ROUND ${state.roundNum + 1} が始まります...`, W / 2, 206);
+    } else if (state.roundState === 'MATCH_OVER') {
+      // Full Match Finish Result Card + Instant Rematch Prompt!
+      ctx.fillStyle = 'rgba(7, 10, 18, 0.88)';
+      ctx.fillRect(0, 0, W, H);
+
+      const cardW = 540;
+      const cardH = 250;
+      const cx = (W - cardW) / 2;
+      const cy = 65;
+
+      ctx.fillStyle = '#0f172a';
+      ctx.strokeStyle = didWin ? '#4ade80' : '#f87171';
+      ctx.lineWidth = 3;
+      ctx.fillRect(cx, cy, cardW, cardH);
+      ctx.strokeRect(cx, cy, cardW, cardH);
+
+      ctx.fillStyle = didWin ? '#4ade80' : '#f87171';
+      ctx.font = '900 36px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(didWin ? '🏆 YOU WIN!! (勝利！)' : '💥 YOU LOSE... (惜敗)', W / 2, cy + 56);
+
+      ctx.fillStyle = '#e2e8f0';
+      ctx.font = 'bold 20px monospace';
+      ctx.fillText(`FINAL SCORE :  1P [${state.p1Wins}]  -  [${state.p2Wins}] 2P`, W / 2, cy + 102);
+
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = 'bold 15px sans-serif';
+      ctx.fillText(
+        didWin
+          ? '素晴らしい間合い管理と反応でした！この感覚を反復しましょう！'
+          : 'なぜ被弾したかを思い出し、目隠しや対空意識でもう1セット挑戦！',
+        W / 2,
+        cy + 145
+      );
+
+      // Pulsing Rematch Button Graphic inside Canvas
+      ctx.fillStyle = '#2563eb';
+      ctx.fillRect(W / 2 - 190, cy + 172, 380, 52);
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(W / 2 - 190, cy + 172, 380, 52);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '900 18px sans-serif';
+      ctx.fillText('⚡ 画面タップ または【A/Bボタン】で即再戦！', W / 2, cy + 204);
+    }
     ctx.restore();
   }
 }

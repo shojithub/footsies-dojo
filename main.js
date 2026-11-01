@@ -294,25 +294,50 @@ document.getElementById('btnSwapSide').addEventListener('click', () => {
   };
 });
 
-function resetPositions() {
+// Tap Canvas when Match is Over to trigger instant Rematch!
+canvas.addEventListener('pointerdown', () => {
+  if (gameState.roundState === 'MATCH_OVER') {
+    triggerInstantRematch();
+  }
+});
+
+function triggerInstantRematch() {
+  sound.init();
+  sound.playSuccessChime();
+  if (netEngine.isOnline && netEngine.conn && netEngine.conn.open) {
+    netEngine.conn.send({ t: 'RESET_SYNC' });
+    netEngine.onMatchStart(netEngine.localPlayerNum);
+    return;
+  }
+  resetPositions();
+}
+
+function applyModePositions(state) {
   const mode = trainerAI.mode;
-  gameState = createInitialGameState();
-  if (mode === DOJO_MODES.RPS_DRILL) {
-    gameState.p1.x = 450;
-    gameState.p2.x = 525;
-  } else if (mode === DOJO_MODES.WHIFF_DRILL) {
-    gameState.p1.x = 400;
-    gameState.p2.x = 580;
+  if (!netEngine.isOnline) {
+    if (mode === DOJO_MODES.RPS_DRILL) {
+      state.p1.x = 450;
+      state.p2.x = 525;
+    } else if (mode === DOJO_MODES.WHIFF_DRILL) {
+      state.p1.x = 400;
+      state.p2.x = 580;
+    }
+    if (startOnRightSide) {
+      const tmpX = state.p1.x;
+      state.p1.x = 1000 - tmpX;
+      state.p2.x = 1000 - state.p2.x;
+      state.p1.facing = -1;
+      state.p2.facing = 1;
+    }
   }
-  if (startOnRightSide) {
-    const tmpX = gameState.p1.x;
-    gameState.p1.x = 1000 - tmpX;
-    gameState.p2.x = 1000 - gameState.p2.x;
-    gameState.p1.facing = -1;
-    gameState.p2.facing = 1;
-  }
-  renderer.localPlayerNum = 1;
-  renderer.smoothBlindX = gameState.p1.x;
+}
+
+function resetPositions() {
+  gameState = createInitialGameState(0, 0, 1);
+  applyModePositions(gameState);
+  renderer.localPlayerNum = netEngine.isOnline ? netEngine.localPlayerNum : 1;
+  const selfP = renderer.localPlayerNum === 2 ? gameState.p2 : gameState.p1;
+  renderer.smoothBlindX = selfP.x;
   renderer.camX = (gameState.p1.x + gameState.p2.x) / 2;
   netEngine.resetBuffers(gameState);
 }
@@ -345,6 +370,30 @@ function handleCoachingEvents(ev) {
     if (ev.byPlayer === enemyPlayerIdx && renderer.showJumpFlash) {
       sound.playJumpAlert();
     }
+    return;
+  }
+  if (ev.type === 'ROUND_OVER') {
+    sound.playHit(true);
+    return;
+  }
+  if (ev.type === 'NEXT_ROUND') {
+    applyModePositions(gameState);
+    sound.playJumpAlert();
+    coachingPopup = {
+      title: `🔔 ROUND ${ev.roundNum} FIGHT!!`,
+      reason: '2ラウンド先取で勝利です！相手の動きをよく見て反応しましょう！',
+      color: '#38bdf8',
+      timer: 110,
+    };
+    return;
+  }
+  if (ev.type === 'MATCH_OVER') {
+    if (ev.winner === myLabel) {
+      sound.playSuccessChime();
+    } else {
+      sound.playHit(true);
+    }
+    matchEndCooldown = 35; // Prevent accidental button mash from skipping result screen immediately
     return;
   }
   if (ev.type === 'BLOCKED') {
@@ -408,6 +457,13 @@ function updateStatsUI() {
 let lastTime = performance.now();
 const STEP_MS = 1000 / 60;
 let accumulator = 0;
+let matchEndCooldown = 0;
+
+function starsText(wins) {
+  if (wins >= 2) return '★★';
+  if (wins === 1) return '★☆';
+  return '☆☆';
+}
 
 function gameLoop(now) {
   const delta = Math.min(100, now - lastTime);
@@ -416,6 +472,17 @@ function gameLoop(now) {
 
   while (accumulator >= STEP_MS) {
     const localIn = getLocalInput();
+
+    // If Match is over, pressing Attack (A), Anti-Air (B), or Throw (C) after brief cooldown triggers instant Rematch!
+    if (gameState.roundState === 'MATCH_OVER') {
+      if (matchEndCooldown > 0) {
+        matchEndCooldown--;
+      } else if (localIn & (INPUT_BITS.ATTACK | INPUT_BITS.ANTIAIR | INPUT_BITS.THROW)) {
+        triggerInstantRematch();
+        break;
+      }
+    }
+
     const cpuIn = netEngine.isOnline ? 0 : trainerAI.getInput(gameState);
 
     gameState = netEngine.stepWithRollback(gameState, localIn, cpuIn);
@@ -425,17 +492,16 @@ function gameLoop(now) {
       handleCoachingEvents(gameState.lastEvent);
     }
 
-    if (gameState.p1.hp <= 0 || gameState.p2.hp <= 0) {
-      gameState.p1.hp = 100;
-      gameState.p2.hp = 100;
-    }
-
     if (coachingPopup.timer > 0) coachingPopup.timer--;
     accumulator -= STEP_MS;
   }
 
   document.getElementById('p1HpFill').style.width = `${gameState.p1.hp}%`;
   document.getElementById('p2HpFill').style.width = `${gameState.p2.hp}%`;
+  document.getElementById('p1Stars').textContent = starsText(gameState.p1Wins);
+  document.getElementById('p2Stars').textContent = starsText(gameState.p2Wins);
+  document.getElementById('roundTimerBox').textContent = String(Math.ceil(gameState.roundTimer / 60));
+
   document.getElementById('dojoHintText').textContent = netEngine.isOnline
     ? `⚡ P2Pオンライン通信対戦中！（ルーム: ${netEngine.roomCode} / あなたは ${netEngine.localPlayerNum}P）`
     : trainerAI.currentHint;

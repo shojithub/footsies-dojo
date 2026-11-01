@@ -99,14 +99,20 @@ export function createInitialPlayer(x, facing) {
   };
 }
 
-export function createInitialGameState() {
+export function createInitialGameState(p1Wins = 0, p2Wins = 0, roundNum = 1) {
   return {
     frame: 0,
     hitstopFrames: 0,
-    roundTimer: 60 * 60,
+    roundTimer: 30 * 60, // 30 seconds per round (1800 frames)
+    roundNum,
+    p1Wins,
+    p2Wins,
+    roundState: 'FIGHT', // 'FIGHT' | 'ROUND_OVER' | 'MATCH_OVER'
+    roundOverTimer: 0,
+    winner: null,        // 'P1' | 'P2' | 'DRAW'
     p1: createInitialPlayer(320, 1),
     p2: createInitialPlayer(680, -1),
-    lastEvent: null, // Coaching feedback event triggered on this frame
+    lastEvent: null,
   };
 }
 
@@ -115,6 +121,12 @@ export function cloneState(state) {
     frame: state.frame,
     hitstopFrames: state.hitstopFrames,
     roundTimer: state.roundTimer,
+    roundNum: state.roundNum,
+    p1Wins: state.p1Wins,
+    p2Wins: state.p2Wins,
+    roundState: state.roundState,
+    roundOverTimer: state.roundOverTimer,
+    winner: state.winner,
     p1: { ...state.p1 },
     p2: { ...state.p2 },
     lastEvent: state.lastEvent ? { ...state.lastEvent } : null,
@@ -220,6 +232,33 @@ export function stepGameState(state, p1Input, p2Input) {
     return state;
   }
 
+  // If Round or Match is over, count down transition timer
+  if (state.roundState === 'ROUND_OVER') {
+    state.roundOverTimer--;
+    if (state.roundOverTimer <= 0) {
+      // Start Next Round automatically!
+      const nextRound = state.roundNum + 1;
+      const p1W = state.p1Wins;
+      const p2W = state.p2Wins;
+      state.roundNum = nextRound;
+      state.roundTimer = 30 * 60;
+      state.roundState = 'FIGHT';
+      state.winner = null;
+      state.p1 = createInitialPlayer(320, 1);
+      state.p2 = createInitialPlayer(680, -1);
+      state.lastEvent = { type: 'NEXT_ROUND', roundNum: nextRound, p1Wins: p1W, p2Wins: p2W };
+    }
+    state.p1.prevInput = p1Input;
+    state.p2.prevInput = p2Input;
+    return state;
+  }
+
+  if (state.roundState === 'MATCH_OVER') {
+    state.p1.prevInput = p1Input;
+    state.p2.prevInput = p2Input;
+    return state;
+  }
+
   if (state.roundTimer > 0) state.roundTimer--;
 
   updatePlayerState(state.p1, p1Input, state.p2, state.frame, 1, state);
@@ -257,6 +296,43 @@ export function stepGameState(state, p1Input, p2Input) {
 
   // Resolve Hitboxes vs Hurtboxes
   resolveCombat(state, p1Input, p2Input);
+
+  // Check K.O. or Time Up!
+  if (state.p1.hp <= 0 || state.p2.hp <= 0 || state.roundTimer <= 0) {
+    let roundWinner = 'DRAW';
+    if (state.p1.hp > state.p2.hp) {
+      roundWinner = 'P1';
+      state.p1Wins++;
+    } else if (state.p2.hp > state.p1.hp) {
+      roundWinner = 'P2';
+      state.p2Wins++;
+    } else {
+      state.p1Wins = Math.min(2, state.p1Wins + 1);
+      state.p2Wins = Math.min(2, state.p2Wins + 1);
+    }
+
+    state.winner = roundWinner;
+
+    // 2 rounds to win a Match!
+    if (state.p1Wins >= 2 || state.p2Wins >= 2) {
+      state.roundState = 'MATCH_OVER';
+      state.roundOverTimer = 0;
+      state.lastEvent = {
+        type: 'MATCH_OVER',
+        winner: state.p1Wins >= 2 ? 'P1' : 'P2',
+        p1Wins: state.p1Wins,
+        p2Wins: state.p2Wins,
+      };
+    } else {
+      state.roundState = 'ROUND_OVER';
+      state.roundOverTimer = 75; // 1.25 sec snappy pause before next round!
+      state.lastEvent = {
+        type: 'ROUND_OVER',
+        winner: roundWinner,
+        roundNum: state.roundNum,
+      };
+    }
+  }
 
   state.p1.prevInput = p1Input;
   state.p2.prevInput = p2Input;
