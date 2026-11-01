@@ -4,7 +4,8 @@ import { FighterState, FRAME_DATA, getBoxes } from './state.js';
 export class DojoRenderer {
   constructor(canvas) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { desynchronized: true, alpha: false });
+    // Note: Avoid { desynchronized: true, alpha: false } because it causes colorful GPU tile corruption/glitches on Android Chrome!
+    this.ctx = canvas.getContext('2d');
     this.width = canvas.width;
     this.height = canvas.height;
     this.groundY = 335;
@@ -77,18 +78,18 @@ export class DojoRenderer {
     ctx.strokeStyle = `rgba(56, 189, 248, ${pulseAlpha.toFixed(3)})`;
     ctx.lineWidth = 1;
 
-    // Vertical distance grid lines every 50 units
+    // Vertical distance grid lines every 50 units (Batched into a single path for Android GPU performance!)
+    ctx.beginPath();
     for (let x = 0; x <= 1000; x += 50) {
-      ctx.beginPath();
       ctx.moveTo(x, 60);
       ctx.lineTo(x, this.groundY + 15);
-      ctx.stroke();
+    }
+    ctx.stroke();
 
-      if (x % 100 === 0 && x > 0 && x < 1000) {
-        ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
-        ctx.font = '11px monospace';
-        ctx.fillText(`${x}`, x - 10, this.groundY + 28);
-      }
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.35)';
+    ctx.font = '11px monospace';
+    for (let x = 100; x < 1000; x += 100) {
+      ctx.fillText(`${x}`, x - 10, this.groundY + 28);
     }
 
     // Stage Walls
@@ -200,13 +201,10 @@ export class DojoRenderer {
   }
 
   drawJumpAlertIndicator(ctx, p2) {
-    // Instead of moving text on the character, draw a calm sky-glow column & fixed top alert
+    // Lightweight solid translucent column (avoids per-frame gradient allocation on low-end Android GPUs)
     ctx.save();
-    const grad = ctx.createLinearGradient(p2.x, 80, p2.x, this.groundY);
-    grad.addColorStop(0, 'rgba(192, 132, 252, 0.35)');
-    grad.addColorStop(1, 'rgba(192, 132, 252, 0.0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(p2.x - 45, 80, 90, this.groundY - 80);
+    ctx.fillStyle = 'rgba(192, 132, 252, 0.22)';
+    ctx.fillRect(p2.x - 42, 80, 84, this.groundY - 80);
     ctx.restore();
   }
 
@@ -294,42 +292,25 @@ export class DojoRenderer {
     ctx.save();
 
     if (isP1OnLeft) {
-      // 1P is on the Left side: Cover from Left edge (0) up to 1P's front, never covering 2P
+      // Self is on the Left side: Cover from Left edge (0) up to Self's front, never covering Enemy
       const coverRightEdge = Math.max(40, Math.min(this.smoothBlindX + 52, p2.x - 36));
-      const solidWidth = Math.max(0, coverRightEdge - 35);
+      ctx.fillStyle = 'rgba(11, 15, 25, 0.96)';
+      ctx.fillRect(0, coverTop, coverRightEdge, coverHeight);
 
-      ctx.fillStyle = 'rgba(11, 15, 25, 0.97)';
-      ctx.fillRect(0, coverTop, solidWidth, coverHeight);
-
-      const grad = ctx.createLinearGradient(solidWidth, 0, coverRightEdge + 15, 0);
-      grad.addColorStop(0, 'rgba(11, 15, 25, 0.97)');
-      grad.addColorStop(1, 'rgba(11, 15, 25, 0.0)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(solidWidth, coverTop, 50, coverHeight);
-
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.45)';
-      ctx.font = 'bold 13px sans-serif';
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.55)';
+      ctx.font = 'bold 14px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillText('🙈 自キャラ目隠し中 (敵キャラだけを見よう)', 28, 115);
+      ctx.fillText('🙈 自キャラ目隠し中', Math.max(16, p1.x - 120), 115);
     } else {
-      // 1P crossed over to the Right side (2P side)!
-      // Cover from 1P's front all the way to the Right edge (1000), never covering 2P!
+      // Self is on the Right side: Cover from Self's front all the way to the Right edge (1000)
       const coverLeftEdge = Math.min(960, Math.max(this.smoothBlindX - 52, p2.x + 36));
-      const solidStart = Math.min(1000, coverLeftEdge + 35);
-
-      ctx.fillStyle = 'rgba(11, 15, 25, 0.97)';
-      ctx.fillRect(solidStart, coverTop, 1000 - solidStart, coverHeight);
-
-      const grad = ctx.createLinearGradient(coverLeftEdge - 15, 0, solidStart, 0);
-      grad.addColorStop(0, 'rgba(11, 15, 25, 0.0)');
-      grad.addColorStop(1, 'rgba(11, 15, 25, 0.97)');
-      ctx.fillStyle = grad;
-      ctx.fillRect(coverLeftEdge - 15, coverTop, 50, coverHeight);
+      ctx.fillStyle = 'rgba(11, 15, 25, 0.96)';
+      ctx.fillRect(coverLeftEdge, coverTop, 1000 - coverLeftEdge, coverHeight);
 
       ctx.fillStyle = 'rgba(148, 163, 184, 0.55)';
       ctx.font = 'bold 14px sans-serif';
       ctx.textAlign = 'right';
-      ctx.fillText('🙈 自キャラ目隠し中', p1.x + 40, 115);
+      ctx.fillText('🙈 自キャラ目隠し中', Math.min(984, p1.x + 120), 115);
       ctx.textAlign = 'left';
     }
 
