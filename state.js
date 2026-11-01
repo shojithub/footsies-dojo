@@ -87,11 +87,13 @@ export function createInitialPlayer(x, facing) {
     x,
     y: 0,
     vx: 0,
+    vy: 0,
     hp: 100,
     facing, // 1 = right, -1 = left
     state: FighterState.IDLE,
     stateFrame: 0,
     stunFrames: 0,
+    kdType: null, // 'ANTIAIR' | 'THROW' | null
     hasHit: false,
     whiffed: false,
     jumpStartFrame: -1, // Tracks when jump began to measure Anti-Air reaction time!
@@ -218,8 +220,17 @@ export function getBoxes(player) {
         type: 'JUMP_ATTACK', // RED
       };
     }
-  } else if (player.state === FighterState.HIT_STUN || player.state === FighterState.KNOCKDOWN) {
+  } else if (player.state === FighterState.HIT_STUN) {
     hurtbox.type = 'DAMAGED';
+  } else if (player.state === FighterState.KNOCKDOWN) {
+    hurtbox.type = 'DAMAGED';
+    if (player.y < 24 && player.stateFrame >= 10) {
+      // Flattened horizontal hurtbox while lying on the mat!
+      hurtbox.x1 = x - 44;
+      hurtbox.x2 = x + 44;
+      hurtbox.y1 = y;
+      hurtbox.y2 = y + 44;
+    }
   }
 
   return { hurtbox, hitbox };
@@ -364,12 +375,32 @@ function updatePlayerState(p, input, opponent, currentFrame, playerIndex, state)
   // Handle Stun / Knockdown recovery
   if (p.state === FighterState.BLOCK_STUN || p.state === FighterState.HIT_STUN || p.state === FighterState.KNOCKDOWN) {
     p.stunFrames--;
-    p.vx *= 0.82;
+    if (p.state === FighterState.KNOCKDOWN) {
+      // Airborne launch & ground slam bounce physics for Anti-Air & Throw!
+      p.y += p.vy;
+      p.vy -= 1.15;
+      if (p.y <= 0) {
+        p.y = 0;
+        if (p.vy < -3.2) {
+          p.vy = -p.vy * 0.34; // Crisp mat bounce!
+          p.vx *= 0.65;
+        } else {
+          p.vy = 0;
+          p.vx *= 0.72;
+        }
+      } else {
+        p.vx *= 0.94;
+      }
+    } else {
+      p.vx *= 0.82;
+    }
     if (p.stunFrames <= 0) {
       p.state = FighterState.IDLE;
       p.stateFrame = 0;
       p.vx = 0;
+      p.vy = 0;
       p.y = 0;
+      p.kdType = null;
     }
     return;
   }
@@ -570,8 +601,11 @@ function applyHitOutcome(state, attacker, defender, attackType, isBlocked, attac
   if (attackType === 'ANTIAIR') {
     dmg = FRAME_DATA.ANTIAIR.DAMAGE;
     stun = FRAME_DATA.ANTIAIR.HIT_STUN;
-    knockback = 10.5;
-    defender.y = 0;
+    knockback = 6.8;
+    // Keep defender's mid-air height and blast them upward in an arc instead of teleporting to y=0!
+    defender.y = Math.max(28, defender.y);
+    defender.vy = 8.2;
+    defender.kdType = 'ANTIAIR';
     if (defender.state === FighterState.JUMP_ARC) {
       const rxF = Math.max(10, Math.min(39, reactionFrames));
       const rxMs = Math.round(rxF * 16.67);
@@ -587,8 +621,13 @@ function applyHitOutcome(state, attacker, defender, attackType, isBlocked, attac
     }
   } else if (attackType === 'THROW') {
     dmg = FRAME_DATA.THROW.DAMAGE;
-    stun = FRAME_DATA.THROW.HIT_STUN;
-    knockback = 11.0;
+    stun = FRAME_DATA.THROW.HIT_STUN + 2;
+    knockback = 7.4;
+    // Pull into grab point, lift into a high throw arc, and slam onto the floor!
+    defender.x = Math.max(FRAME_DATA.STAGE_MIN, Math.min(FRAME_DATA.STAGE_MAX, attacker.x + attacker.facing * 38));
+    defender.y = 22;
+    defender.vy = 8.8;
+    defender.kdType = 'THROW';
     title = attackerLabel === 'P1' ? '🟩 投げ成功！（ガード崩し！）' : '💥 投げられた！（ガード負け）';
     reason =
       attackerLabel === 'P1'

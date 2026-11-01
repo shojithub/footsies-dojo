@@ -1,4 +1,4 @@
-const CACHE_NAME = 'footsies-dojo-v7';
+const CACHE_NAME = 'footsies-dojo-v8';
 const ASSETS = [
   './',
   './index.html',

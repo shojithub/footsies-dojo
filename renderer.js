@@ -501,15 +501,27 @@ export class DojoRenderer {
       handB = { x: x - f * 15, y: baseY - 70 };
       footF = { x: x + f * 22, y: baseY - 12 * ext };
     } else if (p.state === FighterState.THROW) {
-      // 🟩 Grabbing Reach Pose + Smooth Retraction
-      const activeEnd = FRAME_DATA.THROW.STARTUP + FRAME_DATA.THROW.ACTIVE;
-      const recovRatio = p.stateFrame > activeEnd
-        ? Math.min(1, (p.stateFrame - activeEnd) / FRAME_DATA.THROW.RECOVERY)
-        : 0;
-      const ext = 1 - recovRatio * 0.75;
-      head = { x: x + f * 12 * ext, y: baseY - 86 };
-      handF = { x: x + f * (24 + 44 * ext), y: baseY - 68 };
-      handB = { x: x + f * (16 + 42 * ext), y: baseY - 52 };
+      if (p.hasHit) {
+        // 🟩 Dynamic Throw Slam Follow-Through (Heaving & slamming opponent into the floor!)
+        const slamProgress = Math.min(1, p.stateFrame / 12);
+        head = { x: x + f * (20 * slamProgress), y: baseY - 82 + 12 * slamProgress };
+        neck = { x: x + f * (15 * slamProgress), y: baseY - 68 + 10 * slamProgress };
+        hip = { x: x - f * 4, y: baseY - 38 + 4 * slamProgress };
+        handF = { x: x + f * 52, y: baseY - 96 + 72 * slamProgress };
+        handB = { x: x + f * 36, y: baseY - 88 + 68 * slamProgress };
+        footF = { x: x + f * 30, y: baseY };
+        footB = { x: x - f * 24, y: baseY };
+      } else {
+        // 🟩 Grabbing Reach Pose + Smooth Retraction on Whiff
+        const activeEnd = FRAME_DATA.THROW.STARTUP + FRAME_DATA.THROW.ACTIVE;
+        const recovRatio = p.stateFrame > activeEnd
+          ? Math.min(1, (p.stateFrame - activeEnd) / FRAME_DATA.THROW.RECOVERY)
+          : 0;
+        const ext = 1 - recovRatio * 0.75;
+        head = { x: x + f * 12 * ext, y: baseY - 86 };
+        handF = { x: x + f * (24 + 44 * ext), y: baseY - 68 };
+        handB = { x: x + f * (16 + 42 * ext), y: baseY - 52 };
+      }
     } else if (p.state === FighterState.JUMP_ARC) {
       // 🦅 Dive Kick / Jump Attack Pose
       head = { x: x + f * 10, y: baseY - 82 };
@@ -526,12 +538,69 @@ export class DojoRenderer {
       head = { x: x - f * 6, y: baseY - 86 };
       handF = { x: x + f * 14, y: baseY - 78 };
       handB = { x: x + f * 8, y: baseY - 62 };
-    } else if (p.state === FighterState.HIT_STUN || p.state === FighterState.KNOCKDOWN) {
-      // 💥 Reeling Back Pose
-      head = { x: x - f * 22, y: baseY - 84 };
-      neck = { x: x - f * 14, y: baseY - 68 };
-      handF = { x: x - f * 28, y: baseY - 92 };
-      handB = { x: x - f * 32, y: baseY - 60 };
+    } else if (p.state === FighterState.HIT_STUN) {
+      // 💥 Standing Hit-Stun (Reeling back on feet)
+      head = { x: x - f * 20, y: baseY - 84 };
+      neck = { x: x - f * 12, y: baseY - 68 };
+      handF = { x: x - f * 24, y: baseY - 90 };
+      handB = { x: x - f * 28, y: baseY - 60 };
+    } else if (p.state === FighterState.KNOCKDOWN) {
+      // 🌀 Intuitive Airborne Launch / Throw Somersault -> Ground Bounce Flat on Back -> Kip-Up!
+      if (p.y > 8 && p.stateFrame < 14) {
+        if (p.kdType === 'THROW') {
+          // 🟩 Thrown Head-Over-Heels Slam Arc (Head pitched down toward mat, legs whipped high!)
+          head = { x: x - f * 26, y: baseY - 28 };
+          neck = { x: x - f * 14, y: baseY - 40 };
+          hip = { x: x + f * 8, y: baseY - 64 };
+          handF = { x: x - f * 34, y: baseY - 12 };
+          handB = { x: x - f * 6, y: baseY - 20 };
+          footF = { x: x + f * 32, y: baseY - 96 };
+          footB = { x: x + f * 18, y: baseY - 108 };
+        } else {
+          // 🟪 Anti-Air Uppercut Sky Blast (Chest & head blasted upward/backward off feet!)
+          head = { x: x - f * 30, y: baseY - 66 };
+          neck = { x: x - f * 16, y: baseY - 58 };
+          hip = { x: x + f * 6, y: baseY - 38 };
+          handF = { x: x - f * 34, y: baseY - 92 };
+          handB = { x: x - f * 8, y: baseY - 86 };
+          footF = { x: x + f * 28, y: baseY - 24 };
+          footB = { x: x + f * 14, y: baseY - 10 };
+        }
+      } else if (p.stunFrames > 6) {
+        // 💥 Sprawled Flat on Back on the Floor (with mat impact shockwave!)
+        head = { x: x - f * 38, y: baseY - 14 };
+        neck = { x: x - f * 24, y: baseY - 12 };
+        hip = { x: x + f * 8, y: baseY - 10 };
+        handF = { x: x - f * 44, y: baseY - 4 };
+        handB = { x: x - f * 12, y: baseY - 26 };
+        footF = { x: x + f * 36, y: baseY - 4 };
+        footB = { x: x + f * 24, y: baseY - 20 };
+
+        // Crisp ground slam shockwave lines when hitting the mat
+        if (!isGhost && p.stateFrame >= 9 && p.stateFrame <= 18) {
+          ctx.save();
+          ctx.strokeStyle = p.kdType === 'THROW' ? 'rgba(74, 222, 128, 0.7)' : 'rgba(192, 132, 252, 0.7)';
+          ctx.lineWidth = 2.5;
+          const spread = (p.stateFrame - 8) * 5.5;
+          ctx.beginPath();
+          ctx.moveTo(x - 25 - spread, this.groundY - 2);
+          ctx.lineTo(x - 10 - spread * 0.5, this.groundY - 12);
+          ctx.moveTo(x + 25 + spread, this.groundY - 2);
+          ctx.lineTo(x + 10 + spread * 0.5, this.groundY - 12);
+          ctx.stroke();
+          ctx.restore();
+        }
+      } else {
+        // ⬆️ Smooth Kip-Up / Stand-Up Recovery (Last 6 frames of knockdown)
+        const up = Math.max(0, Math.min(1, (6 - p.stunFrames) / 6));
+        head = { x: x - f * 38 * (1 - up), y: baseY - (14 + 78 * up) };
+        neck = { x: x - f * 24 * (1 - up), y: baseY - (12 + 64 * up) };
+        hip = { x: x + f * (8 * (1 - up) - 4 * up), y: baseY - (10 + 30 * up) };
+        handF = { x: x + f * (-44 * (1 - up) + 24 * up), y: baseY - (4 + 60 * up) };
+        handB = { x: x - f * 14, y: baseY - (26 + 32 * up) };
+        footF = { x: x + f * (36 * (1 - up) + 18 * up), y: baseY };
+        footB = { x: x + f * (24 * (1 - up) - 18 * up), y: baseY };
+      }
     }
 
     // Draw Head
