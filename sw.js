@@ -1,13 +1,13 @@
-const CACHE_NAME = 'footsies-dojo-v8';
+const CACHE_NAME = 'footsies-dojo-v9';
 const ASSETS = [
   './',
   './index.html',
-  './main.js',
-  './state.js',
-  './network.js',
-  './dojo_ai.js',
-  './renderer.js',
-  './audio.js',
+  './main.js?v=9',
+  './state.js?v=9',
+  './network.js?v=9',
+  './dojo_ai.js?v=9',
+  './renderer.js?v=9',
+  './audio.js?v=9',
   './icon.svg',
   './manifest.json'
 ];
@@ -27,11 +27,11 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Network-first strategy so GitHub Pages updates reflect immediately when online
+// Network-first with no-cache so GitHub Pages updates reflect immediately on mobile Safari/Chrome
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: 'no-cache' })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));

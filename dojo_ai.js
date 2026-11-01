@@ -1,5 +1,5 @@
 // Specialized Training Dojo AI for practicing Anti-Air, Close RPS (3-sukumi), and Whiff Punishing
-import { INPUT_BITS, FighterState } from './state.js';
+import { INPUT_BITS, FighterState } from './state.js?v=9';
 
 export const DOJO_MODES = {
   ANTIAIR_DRILL: 'ANTIAIR_DRILL',     // Drill 1: Ground Footsies + Sudden Jump-in! (Practice pressing B on reaction)

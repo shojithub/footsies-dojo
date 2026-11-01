@@ -66,7 +66,7 @@ export const FRAME_DATA = {
     REACH_X: 115,
     REACH_Y: 190,
     DAMAGE: 35,
-    HIT_STUN: 28,
+    HIT_STUN: 34,
     BLOCK_STUN: 8, // Very unsafe (-16F) if blocked on ground!
   },
 
@@ -78,7 +78,7 @@ export const FRAME_DATA = {
     TOTAL: 24,
     REACH: 76, // Must be very close!
     DAMAGE: 25,
-    HIT_STUN: 24,
+    HIT_STUN: 32,
   }
 };
 
@@ -94,6 +94,7 @@ export function createInitialPlayer(x, facing) {
     stateFrame: 0,
     stunFrames: 0,
     kdType: null, // 'ANTIAIR' | 'THROW' | null
+    kdStartY: 0,
     hasHit: false,
     whiffed: false,
     jumpStartFrame: -1, // Tracks when jump began to measure Anti-Air reaction time!
@@ -182,6 +183,9 @@ export function getBoxes(player) {
   } else if (player.state === FighterState.ANTIAIR) {
     const sf = player.stateFrame;
     const fd = FRAME_DATA.ANTIAIR;
+    if (sf < fd.STARTUP + fd.ACTIVE) {
+      hurtbox.type = 'AIR_INVINCIBLE'; // PURPLE HURTBOX from Frame 1 of Anti-Air!
+    }
     if (sf >= fd.STARTUP && sf < fd.STARTUP + fd.ACTIVE) {
       hitbox = {
         x1: f === 1 ? x - 15 : x - fd.REACH_X,
@@ -190,7 +194,6 @@ export function getBoxes(player) {
         y2: fd.REACH_Y,
         type: 'ANTIAIR', // PURPLE
       };
-      hurtbox.type = 'AIR_INVINCIBLE'; // PURPLE HURTBOX
     } else if (sf >= fd.STARTUP + fd.ACTIVE) {
       hurtbox.type = 'WHIFF_PUNISHABLE'; // YELLOW
     }
@@ -253,29 +256,32 @@ export function stepGameState(state, p1Input, p2Input) {
     return state;
   }
 
-  // If Round or Match is over, count down transition timer
-  if (state.roundState === 'ROUND_OVER') {
-    state.roundOverTimer--;
-    if (state.roundOverTimer <= 0) {
-      // Start Next Round automatically with randomized Left/Right side!
-      const nextRound = state.roundNum + 1;
-      const p1W = state.p1Wins;
-      const p2W = state.p2Wins;
-      const swapped = shouldSwapSidesForRound(state.matchSeed, nextRound);
-      state.roundNum = nextRound;
-      state.roundTimer = 30 * 60;
-      state.roundState = 'FIGHT';
-      state.winner = null;
-      state.p1 = createInitialPlayer(swapped ? 680 : 320, swapped ? -1 : 1);
-      state.p2 = createInitialPlayer(swapped ? 320 : 680, swapped ? 1 : -1);
-      state.lastEvent = { type: 'NEXT_ROUND', roundNum: nextRound, p1Wins: p1W, p2Wins: p2W, swapped };
-    }
-    state.p1.prevInput = p1Input;
-    state.p2.prevInput = p2Input;
-    return state;
-  }
+  // If Round or Match is over, continue stepping knockdown/recovery animations so KO slams finish!
+  if (state.roundState === 'ROUND_OVER' || state.roundState === 'MATCH_OVER') {
+    updatePlayerState(state.p1, 0, state.p2, state.frame, 1, state);
+    updatePlayerState(state.p2, 0, state.p1, state.frame, 2, state);
+    applyPhysics(state.p1);
+    applyPhysics(state.p2);
+    state.p1.x = Math.max(FRAME_DATA.STAGE_MIN, Math.min(FRAME_DATA.STAGE_MAX, state.p1.x));
+    state.p2.x = Math.max(FRAME_DATA.STAGE_MIN, Math.min(FRAME_DATA.STAGE_MAX, state.p2.x));
 
-  if (state.roundState === 'MATCH_OVER') {
+    if (state.roundState === 'ROUND_OVER') {
+      state.roundOverTimer--;
+      if (state.roundOverTimer <= 0) {
+        // Start Next Round automatically with randomized Left/Right side!
+        const nextRound = state.roundNum + 1;
+        const p1W = state.p1Wins;
+        const p2W = state.p2Wins;
+        const swapped = shouldSwapSidesForRound(state.matchSeed, nextRound);
+        state.roundNum = nextRound;
+        state.roundTimer = 30 * 60;
+        state.roundState = 'FIGHT';
+        state.winner = null;
+        state.p1 = createInitialPlayer(swapped ? 680 : 320, swapped ? -1 : 1);
+        state.p2 = createInitialPlayer(swapped ? 320 : 680, swapped ? 1 : -1);
+        state.lastEvent = { type: 'NEXT_ROUND', roundNum: nextRound, p1Wins: p1W, p2Wins: p2W, swapped };
+      }
+    }
     state.p1.prevInput = p1Input;
     state.p2.prevInput = p2Input;
     return state;
@@ -376,25 +382,31 @@ function updatePlayerState(p, input, opponent, currentFrame, playerIndex, state)
   if (p.state === FighterState.BLOCK_STUN || p.state === FighterState.HIT_STUN || p.state === FighterState.KNOCKDOWN) {
     p.stunFrames--;
     if (p.state === FighterState.KNOCKDOWN) {
-      // Airborne launch & ground slam bounce physics for Anti-Air & Throw!
-      p.y += p.vy;
-      p.vy -= 1.15;
-      if (p.y <= 0) {
-        p.y = 0;
-        if (p.vy < -3.2) {
-          p.vy = -p.vy * 0.34; // Crisp mat bounce!
-          p.vx *= 0.65;
-        } else {
-          p.vy = 0;
-          p.vx *= 0.72;
-        }
+      // Deterministic 3-Phase Trajectory for Anti-Air & Throw Knockdown!
+      const slamFrame = p.kdType === 'THROW' ? 12 : 13;
+      const bounceEndFrame = slamFrame + 7;
+      if (p.stateFrame <= slamFrame) {
+        // Phase 1: Airborne Launch / Throw Somersault Slam Arc -> Guaranteed Ground Impact at slamFrame!
+        const t = p.stateFrame / slamFrame;
+        const arcPeak = p.kdType === 'THROW' ? 120 : 140;
+        const startY = p.kdType === 'THROW' ? 12 : (p.kdStartY || 40);
+        p.y = Math.max(0, Math.round(startY * (1 - t) + arcPeak * 4 * t * (1 - t)));
+        p.vx *= 0.96;
+      } else if (p.stateFrame <= bounceEndFrame) {
+        // Phase 2: Crisp Mat Bounce after slamming onto the floor!
+        const tb = (p.stateFrame - slamFrame) / 7;
+        p.y = Math.max(0, Math.round(32 * 4 * tb * (1 - tb)));
+        p.vx *= 0.72;
       } else {
-        p.vx *= 0.94;
+        // Phase 3: Lying flat on the mat -> Kip-up recovery
+        p.y = 0;
+        p.vx *= 0.65;
       }
     } else {
       p.vx *= 0.82;
     }
-    if (p.stunFrames <= 0) {
+    // If HP is 0 (K.O.), stay knocked down on the mat during ROUND_OVER / MATCH_OVER!
+    if (p.stunFrames <= 0 && p.hp > 0) {
       p.state = FighterState.IDLE;
       p.stateFrame = 0;
       p.vx = 0;
@@ -514,8 +526,14 @@ function resolveCombat(state, p1Input, p2Input) {
   const b1 = getBoxes(state.p1);
   const b2 = getBoxes(state.p2);
 
-  const p1HitP2 = !state.p1.hasHit && boxesOverlap(b1.hitbox, b2.hurtbox);
-  const p2HitP1 = !state.p2.hasHit && boxesOverlap(b2.hitbox, b1.hurtbox);
+  const p1HitP2 =
+    !state.p1.hasHit &&
+    boxesOverlap(b1.hitbox, b2.hurtbox) &&
+    !(b1.hitbox.type === 'JUMP_ATTACK' && b2.hurtbox.type === 'AIR_INVINCIBLE');
+  const p2HitP1 =
+    !state.p2.hasHit &&
+    boxesOverlap(b2.hitbox, b1.hurtbox) &&
+    !(b2.hitbox.type === 'JUMP_ATTACK' && b1.hurtbox.type === 'AIR_INVINCIBLE');
 
   // Special rule: Anti-Air (B) is completely invulnerable to JUMP_ATTACK!
   const p1AntiAirBeatJump =
@@ -588,8 +606,8 @@ function applyHitOutcome(state, attacker, defender, attackType, isBlocked, attac
     return;
   }
 
-  // Clean Hit!
-  state.hitstopFrames = attackType === 'ANTIAIR' || defenderWasWhiffing ? 14 : 10;
+  // Clean Hit! Keep hitstop crisp so Throw & Anti-Air launch arcs flow immediately!
+  state.hitstopFrames = attackType === 'THROW' ? 3 : attackType === 'ANTIAIR' ? 5 : defenderWasWhiffing ? 8 : 6;
 
   let dmg = 20;
   let stun = 16;
@@ -601,10 +619,10 @@ function applyHitOutcome(state, attacker, defender, attackType, isBlocked, attac
   if (attackType === 'ANTIAIR') {
     dmg = FRAME_DATA.ANTIAIR.DAMAGE;
     stun = FRAME_DATA.ANTIAIR.HIT_STUN;
-    knockback = 6.8;
-    // Keep defender's mid-air height and blast them upward in an arc instead of teleporting to y=0!
-    defender.y = Math.max(28, defender.y);
-    defender.vy = 8.2;
+    knockback = 7.5;
+    // Record defender's mid-air height and blast them in a high uppercut arc!
+    defender.kdStartY = Math.max(36, defender.y);
+    defender.y = defender.kdStartY;
     defender.kdType = 'ANTIAIR';
     if (defender.state === FighterState.JUMP_ARC) {
       const rxF = Math.max(10, Math.min(39, reactionFrames));
@@ -621,12 +639,12 @@ function applyHitOutcome(state, attacker, defender, attackType, isBlocked, attac
     }
   } else if (attackType === 'THROW') {
     dmg = FRAME_DATA.THROW.DAMAGE;
-    stun = FRAME_DATA.THROW.HIT_STUN + 2;
-    knockback = 7.4;
-    // Pull into grab point, lift into a high throw arc, and slam onto the floor!
-    defender.x = Math.max(FRAME_DATA.STAGE_MIN, Math.min(FRAME_DATA.STAGE_MAX, attacker.x + attacker.facing * 38));
-    defender.y = 22;
-    defender.vy = 8.8;
+    stun = FRAME_DATA.THROW.HIT_STUN;
+    knockback = 8.2;
+    // Pull into grab point, heave over in a somersault arc, and slam onto the floor!
+    defender.x = Math.max(FRAME_DATA.STAGE_MIN, Math.min(FRAME_DATA.STAGE_MAX, attacker.x + attacker.facing * 32));
+    defender.kdStartY = 16;
+    defender.y = 16;
     defender.kdType = 'THROW';
     title = attackerLabel === 'P1' ? '🟩 投げ成功！（ガード崩し！）' : '💥 投げられた！（ガード負け）';
     reason =
